@@ -32,72 +32,80 @@
 
 namespace art {
 
+class CompactDexFile;
 enum InvokeType : uint32_t;
 class MemMap;
 class OatDexFile;
 class Signature;
+class StandardDexFile;
 class StringPiece;
 class ZipArchive;
 
+// Some instances of DexFile own the storage referred to by DexFile.  Clients who create
+// such management do so by subclassing Container.
+class DexFileContainer {
+ public:
+  DexFileContainer() { }
+  virtual ~DexFileContainer() { }
+  virtual int GetPermissions() = 0;
+  virtual bool IsReadOnly() = 0;
+  virtual bool EnableWrite() = 0;
+  virtual bool DisableWrite() = 0;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DexFileContainer);
+};
+
+// Dex file is the API that exposes native dex files (ordinary dex files) and CompactDex.
+// Originally, the dex file format used by ART was mostly the same as APKs. The only change was
+// quickened opcodes and layout optimizations.
+// Since ART needs to support both native dex files and CompactDex files, the DexFile interface
+// provides an abstraction to facilitate this.
 class DexFile {
  public:
+  // Number of bytes in the dex file magic.
+  static constexpr size_t kDexMagicSize = 4;
+  static constexpr size_t kDexVersionLen = 4;
+
   // First Dex format version supporting default methods.
   static const uint32_t kDefaultMethodsVersion = 37;
   // First Dex format version enforcing class definition ordering rules.
   static const uint32_t kClassDefinitionOrderEnforcedVersion = 37;
 
-  static const uint8_t kDexMagic[];
-  static constexpr size_t kNumDexVersions = 4;
-  static constexpr size_t kDexVersionLen = 4;
-  static const uint8_t kDexMagicVersions[kNumDexVersions][kDexVersionLen];
-
   static constexpr size_t kSha1DigestSize = 20;
   static constexpr uint32_t kDexEndianConstant = 0x12345678;
-
-  // name of the DexFile entry within a zip archive
-  static const char* kClassesDex;
 
   // The value of an invalid index.
   static const uint16_t kDexNoIndex16 = 0xFFFF;
 
-  // The separator character in MultiDex locations.
-  static constexpr char kMultiDexSeparator = '!';
-
-  // A string version of the previous. This is a define so that we can merge string literals in the
-  // preprocessor.
-  #define kMultiDexSeparatorString "!"
-
   // Raw header_item.
   struct Header {
-    uint8_t magic_[8];
-    uint32_t checksum_;  // See also location_checksum_
-    uint8_t signature_[kSha1DigestSize];
-    uint32_t file_size_;  // size of entire file
-    uint32_t header_size_;  // offset to start of next section
-    uint32_t endian_tag_;
-    uint32_t link_size_;  // unused
-    uint32_t link_off_;  // unused
-    uint32_t map_off_;  // unused
-    uint32_t string_ids_size_;  // number of StringIds
-    uint32_t string_ids_off_;  // file offset of StringIds array
-    uint32_t type_ids_size_;  // number of TypeIds, we don't support more than 65535
-    uint32_t type_ids_off_;  // file offset of TypeIds array
-    uint32_t proto_ids_size_;  // number of ProtoIds, we don't support more than 65535
-    uint32_t proto_ids_off_;  // file offset of ProtoIds array
-    uint32_t field_ids_size_;  // number of FieldIds
-    uint32_t field_ids_off_;  // file offset of FieldIds array
-    uint32_t method_ids_size_;  // number of MethodIds
-    uint32_t method_ids_off_;  // file offset of MethodIds array
-    uint32_t class_defs_size_;  // number of ClassDefs
-    uint32_t class_defs_off_;  // file offset of ClassDef array
-    uint32_t data_size_;  // size of data section
-    uint32_t data_off_;  // file offset of data section
+    uint8_t magic_[8] = {};
+    uint32_t checksum_ = 0;  // See also location_checksum_
+    uint8_t signature_[kSha1DigestSize] = {};
+    uint32_t file_size_ = 0;  // size of entire file
+    uint32_t header_size_ = 0;  // offset to start of next section
+    uint32_t endian_tag_ = 0;
+    uint32_t link_size_ = 0;  // unused
+    uint32_t link_off_ = 0;  // unused
+    uint32_t map_off_ = 0;  // unused
+    uint32_t string_ids_size_ = 0;  // number of StringIds
+    uint32_t string_ids_off_ = 0;  // file offset of StringIds array
+    uint32_t type_ids_size_ = 0;  // number of TypeIds, we don't support more than 65535
+    uint32_t type_ids_off_ = 0;  // file offset of TypeIds array
+    uint32_t proto_ids_size_ = 0;  // number of ProtoIds, we don't support more than 65535
+    uint32_t proto_ids_off_ = 0;  // file offset of ProtoIds array
+    uint32_t field_ids_size_ = 0;  // number of FieldIds
+    uint32_t field_ids_off_ = 0;  // file offset of FieldIds array
+    uint32_t method_ids_size_ = 0;  // number of MethodIds
+    uint32_t method_ids_off_ = 0;  // file offset of MethodIds array
+    uint32_t class_defs_size_ = 0;  // number of ClassDefs
+    uint32_t class_defs_off_ = 0;  // file offset of ClassDef array
+    uint32_t data_size_ = 0;  // size of data section
+    uint32_t data_off_ = 0;  // file offset of data section
 
     // Decode the dex magic version
     uint32_t GetVersion() const;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Header);
   };
 
   // Map item type codes.
@@ -295,9 +303,10 @@ class DexFile {
 
   // Raw code_item.
   struct CodeItem {
-    IterationRange<DexInstructionIterator> Instructions() const {
-      return { DexInstructionIterator(insns_),
-               DexInstructionIterator(insns_ + insns_size_in_code_units_)};
+    IterationRange<DexInstructionIterator> Instructions(uint32_t start_dex_pc = 0u) const {
+      DCHECK_LE(start_dex_pc, insns_size_in_code_units_);
+      return { DexInstructionIterator(insns_, start_dex_pc),
+               DexInstructionIterator(insns_, insns_size_in_code_units_) };
     }
 
     const Instruction& InstructionAt(uint32_t dex_pc) const {
@@ -433,86 +442,11 @@ class DexFile {
 
   struct AnnotationValue;
 
-  // Returns the checksums of a file for comparison with GetLocationChecksum().
-  // For .dex files, this is the single header checksum.
-  // For zip files, this is the zip entry CRC32 checksum for classes.dex and
-  // each additional multidex entry classes2.dex, classes3.dex, etc.
-  // Return true if the checksums could be found, false otherwise.
-  static bool GetMultiDexChecksums(const char* filename,
-                                   std::vector<uint32_t>* checksums,
-                                   std::string* error_msg);
-
-  // Check whether a location denotes a multidex dex file. This is a very simple check: returns
-  // whether the string contains the separator character.
-  static bool IsMultiDexLocation(const char* location);
-
-  // Opens .dex file, backed by existing memory
-  static std::unique_ptr<const DexFile> Open(const uint8_t* base,
-                                             size_t size,
-                                             const std::string& location,
-                                             uint32_t location_checksum,
-                                             const OatDexFile* oat_dex_file,
-                                             bool verify,
-                                             bool verify_checksum,
-                                             std::string* error_msg);
-
-  // Opens .dex file that has been memory-mapped by the caller.
-  static std::unique_ptr<const DexFile> Open(const std::string& location,
-                                             uint32_t location_checkum,
-                                             std::unique_ptr<MemMap> mem_map,
-                                             bool verify,
-                                             bool verify_checksum,
-                                             std::string* error_msg);
-
-  // Opens all .dex files found in the file, guessing the container format based on file extension.
-  static bool Open(const char* filename,
-                   const std::string& location,
-                   bool verify_checksum,
-                   std::string* error_msg,
-                   std::vector<std::unique_ptr<const DexFile>>* dex_files);
-
-  // Open a single dex file from an fd. This function closes the fd.
-  static std::unique_ptr<const DexFile> OpenDex(int fd,
-                                                const std::string& location,
-                                                bool verify_checksum,
-                                                std::string* error_msg);
-
-  // Opens dex files from within a .jar, .zip, or .apk file
-  static bool OpenZip(int fd,
-                      const std::string& location,
-                      bool verify_checksum,
-                      std::string* error_msg,
-                      std::vector<std::unique_ptr<const DexFile>>* dex_files);
-
   // Closes a .dex file.
   virtual ~DexFile();
 
   const std::string& GetLocation() const {
     return location_;
-  }
-
-  // For normal dex files, location and base location coincide. If a dex file is part of a multidex
-  // archive, the base location is the name of the originating jar/apk, stripped of any internal
-  // classes*.dex path.
-  static std::string GetBaseLocation(const char* location) {
-    const char* pos = strrchr(location, kMultiDexSeparator);
-    return (pos == nullptr) ? location : std::string(location, pos - location);
-  }
-
-  static std::string GetBaseLocation(const std::string& location) {
-    return GetBaseLocation(location.c_str());
-  }
-
-  // Returns the '!classes*.dex' part of the dex location. Returns an empty
-  // string if there is no multidex suffix for the given location.
-  // The kMultiDexSeparator is included in the returned suffix.
-  static std::string GetMultiDexSuffix(const std::string& location) {
-    size_t pos = location.rfind(kMultiDexSeparator);
-    return (pos == std::string::npos) ? std::string() : location.substr(pos);
-  }
-
-  std::string GetBaseLocation() const {
-    return GetBaseLocation(location_);
   }
 
   // For DexFiles directly from .dex files, this is the checksum from the DexFile::Header.
@@ -532,10 +466,10 @@ class DexFile {
   }
 
   // Returns true if the byte string points to the magic value.
-  static bool IsMagicValid(const uint8_t* magic);
+  virtual bool IsMagicValid() const = 0;
 
   // Returns true if the byte string after the magic is the correct value.
-  static bool IsVersionValid(const uint8_t* magic);
+  virtual bool IsVersionValid() const = 0;
 
   // Returns the number of string identifiers in the .dex file.
   size_t NumStringIds() const {
@@ -853,10 +787,6 @@ class DexFile {
     bool epilogue_begin_ = false;
   };
 
-  // Callback for "new position table entry".
-  // Returning true causes the decoder to stop early.
-  typedef bool (*DexDebugNewPositionCb)(void* context, const PositionInfo& entry);
-
   struct LocalInfo {
     LocalInfo() = default;
 
@@ -938,12 +868,16 @@ class DexFile {
         : reinterpret_cast<const AnnotationSetRefList*>(begin_ + offset);
   }
 
-  const AnnotationItem* GetAnnotationItem(const AnnotationSetItem* set_item, uint32_t index) const {
-    DCHECK_LE(index, set_item->size_);
-    uint32_t offset = set_item->entries_[index];
+  ALWAYS_INLINE const AnnotationItem* GetAnnotationItemAtOffset(uint32_t offset) const {
+    DCHECK_LE(offset, Size());
     return (offset == 0)
         ? nullptr
         : reinterpret_cast<const AnnotationItem*>(begin_ + offset);
+  }
+
+  const AnnotationItem* GetAnnotationItem(const AnnotationSetItem* set_item, uint32_t index) const {
+    DCHECK_LE(index, set_item->size_);
+    return GetAnnotationItemAtOffset(set_item->entries_[index]);
   }
 
   const AnnotationSetItem* GetSetRefItemItem(const AnnotationSetRefItem* anno_item) const {
@@ -980,11 +914,36 @@ class DexFile {
   };
 
   // Returns false if there is no debugging information or if it cannot be decoded.
-  bool DecodeDebugLocalInfo(const CodeItem* code_item, bool is_static, uint32_t method_idx,
-                            DexDebugNewLocalCb local_cb, void* context) const;
+  template<typename NewLocalCallback, typename IndexToStringData, typename TypeIndexToStringData>
+  static bool DecodeDebugLocalInfo(const uint8_t* stream,
+                                   const std::string& location,
+                                   const char* declaring_class_descriptor,
+                                   const std::vector<const char*>& arg_descriptors,
+                                   const std::string& method_name,
+                                   bool is_static,
+                                   uint16_t registers_size,
+                                   uint16_t ins_size,
+                                   uint16_t insns_size_in_code_units,
+                                   IndexToStringData index_to_string_data,
+                                   TypeIndexToStringData type_index_to_string_data,
+                                   NewLocalCallback new_local,
+                                   void* context);
+  template<typename NewLocalCallback>
+  bool DecodeDebugLocalInfo(const CodeItem* code_item,
+                            bool is_static,
+                            uint32_t method_idx,
+                            NewLocalCallback new_local,
+                            void* context) const;
 
   // Returns false if there is no debugging information or if it cannot be decoded.
-  bool DecodeDebugPositionInfo(const CodeItem* code_item, DexDebugNewPositionCb position_cb,
+  template<typename DexDebugNewPosition, typename IndexToStringData>
+  static bool DecodeDebugPositionInfo(const uint8_t* stream,
+                                      IndexToStringData index_to_string_data,
+                                      DexDebugNewPosition position_functor,
+                                      void* context);
+  template<typename DexDebugNewPosition>
+  bool DecodeDebugPositionInfo(const CodeItem* code_item,
+                               DexDebugNewPosition position_functor,
                                void* context) const;
 
   const char* GetSourceFile(const ClassDef& class_def) const {
@@ -1011,29 +970,6 @@ class DexFile {
     return size_;
   }
 
-  // Return the name of the index-th classes.dex in a multidex zip file. This is classes.dex for
-  // index == 0, and classes{index + 1}.dex else.
-  static std::string GetMultiDexClassesDexName(size_t index);
-
-  // Return the (possibly synthetic) dex location for a multidex entry. This is dex_location for
-  // index == 0, and dex_location + multi-dex-separator + GetMultiDexClassesDexName(index) else.
-  static std::string GetMultiDexLocation(size_t index, const char* dex_location);
-
-  // Returns the canonical form of the given dex location.
-  //
-  // There are different flavors of "dex locations" as follows:
-  // the file name of a dex file:
-  //     The actual file path that the dex file has on disk.
-  // dex_location:
-  //     This acts as a key for the class linker to know which dex file to load.
-  //     It may correspond to either an old odex file or a particular dex file
-  //     inside an oat file. In the first case it will also match the file name
-  //     of the dex file. In the second case (oat) it will include the file name
-  //     and possibly some multidex annotation to uniquely identify it.
-  // canonical_dex_location:
-  //     the dex_location where it's file name part has been made canonical.
-  static std::string GetDexCanonicalLocation(const char* dex_location);
-
   const OatDexFile* GetOatDexFile() const {
     return oat_dex_file_;
   }
@@ -1059,69 +995,24 @@ class DexFile {
   // Returns a human-readable form of the type at an index.
   std::string PrettyType(dex::TypeIndex type_idx) const;
 
- private:
-  static std::unique_ptr<const DexFile> OpenFile(int fd,
-                                                 const std::string& location,
-                                                 bool verify,
-                                                 bool verify_checksum,
-                                                 std::string* error_msg);
+  // Not virtual for performance reasons.
+  ALWAYS_INLINE bool IsCompactDexFile() const {
+    return is_compact_dex_;
+  }
+  ALWAYS_INLINE bool IsStandardDexFile() const {
+    return !is_compact_dex_;
+  }
+  ALWAYS_INLINE const StandardDexFile* AsStandardDexFile() const;
+  ALWAYS_INLINE const CompactDexFile* AsCompactDexFile() const;
 
-  enum class ZipOpenErrorCode {  // private
-    kNoError,
-    kEntryNotFound,
-    kExtractToMemoryError,
-    kDexFileError,
-    kMakeReadOnlyError,
-    kVerifyError
-  };
-
-  // Open all classesXXX.dex files from a zip archive.
-  static bool OpenAllDexFilesFromZip(const ZipArchive& zip_archive,
-                                     const std::string& location,
-                                     bool verify_checksum,
-                                     std::string* error_msg,
-                                     std::vector<std::unique_ptr<const DexFile>>* dex_files);
-
-  // Opens .dex file from the entry_name in a zip archive. error_code is undefined when non-null
-  // return.
-  static std::unique_ptr<const DexFile> OpenOneDexFileFromZip(const ZipArchive& zip_archive,
-                                                              const char* entry_name,
-                                                              const std::string& location,
-                                                              bool verify_checksum,
-                                                              std::string* error_msg,
-                                                              ZipOpenErrorCode* error_code);
-
-  enum class VerifyResult {  // private
-    kVerifyNotAttempted,
-    kVerifySucceeded,
-    kVerifyFailed
-  };
-
-  static std::unique_ptr<DexFile> OpenCommon(const uint8_t* base,
-                                             size_t size,
-                                             const std::string& location,
-                                             uint32_t location_checksum,
-                                             const OatDexFile* oat_dex_file,
-                                             bool verify,
-                                             bool verify_checksum,
-                                             std::string* error_msg,
-                                             VerifyResult* verify_result = nullptr);
-
-
-  // Opens a .dex file at the given address, optionally backed by a MemMap
-  static std::unique_ptr<const DexFile> OpenMemory(const uint8_t* dex_file,
-                                                   size_t size,
-                                                   const std::string& location,
-                                                   uint32_t location_checksum,
-                                                   std::unique_ptr<MemMap> mem_map,
-                                                   const OatDexFile* oat_dex_file,
-                                                   std::string* error_msg);
-
+ protected:
   DexFile(const uint8_t* base,
           size_t size,
           const std::string& location,
           uint32_t location_checksum,
-          const OatDexFile* oat_dex_file);
+          const OatDexFile* oat_dex_file,
+          DexFileContainer* container,
+          bool is_compact_dex);
 
   // Top-level initializer that calls other Init methods.
   bool Init(std::string* error_msg);
@@ -1145,9 +1036,6 @@ class DexFile {
   const std::string location_;
 
   const uint32_t location_checksum_;
-
-  // Manages the underlying memory allocation.
-  std::unique_ptr<MemMap> mem_map_;
 
   // Points to the header section.
   const Header* const header_;
@@ -1187,9 +1075,15 @@ class DexFile {
   // null.
   mutable const OatDexFile* oat_dex_file_;
 
+  // Manages the underlying memory allocation.
+  std::unique_ptr<DexFileContainer> container_;
+
+  // If the dex file is a compact dex file. If false then the dex file is a standard dex file.
+  const bool is_compact_dex_;
+
+  friend class DexFileLoader;
   friend class DexFileVerifierTest;
   friend class OatWriter;
-  ART_FRIEND_TEST(ClassLinkerTest, RegisterDexFileName);  // for constructor
 };
 
 std::ostream& operator<<(std::ostream& os, const DexFile& dex_file);

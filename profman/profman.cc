@@ -39,6 +39,7 @@
 #include "boot_image_profile.h"
 #include "bytecode_utils.h"
 #include "dex_file.h"
+#include "dex_file_loader.h"
 #include "dex_file_types.h"
 #include "jit/profile_compilation_info.h"
 #include "profile_assistant.h"
@@ -328,21 +329,23 @@ class ProfMan FINAL {
       std::string error_msg;
       std::vector<std::unique_ptr<const DexFile>> dex_files_for_location;
       if (use_apk_fd_list) {
-        if (DexFile::OpenZip(apks_fd_[i],
-                             dex_locations_[i],
-                             kVerifyChecksum,
-                             &error_msg,
-                             &dex_files_for_location)) {
+        if (DexFileLoader::OpenZip(apks_fd_[i],
+                                   dex_locations_[i],
+                                   /* verify */ true,
+                                   kVerifyChecksum,
+                                   &error_msg,
+                                   &dex_files_for_location)) {
         } else {
           LOG(WARNING) << "OpenZip failed for '" << dex_locations_[i] << "' " << error_msg;
           continue;
         }
       } else {
-        if (DexFile::Open(apk_files_[i].c_str(),
-                          dex_locations_[i],
-                          kVerifyChecksum,
-                          &error_msg,
-                          &dex_files_for_location)) {
+        if (DexFileLoader::Open(apk_files_[i].c_str(),
+                                dex_locations_[i],
+                                /* verify */ true,
+                                kVerifyChecksum,
+                                &error_msg,
+                                &dex_files_for_location)) {
         } else {
           LOG(WARNING) << "Open failed for '" << dex_locations_[i] << "' " << error_msg;
           continue;
@@ -722,15 +725,15 @@ class ProfMan FINAL {
     const DexFile::CodeItem* code_item = dex_file->GetCodeItem(offset);
 
     bool found_invoke = false;
-    for (CodeItemIterator it(*code_item); !it.Done(); it.Advance()) {
-      if (it.CurrentInstruction().Opcode() == Instruction::INVOKE_VIRTUAL) {
+    for (const DexInstructionPcPair& inst : code_item->Instructions()) {
+      if (inst->Opcode() == Instruction::INVOKE_VIRTUAL) {
         if (found_invoke) {
           LOG(ERROR) << "Multiple invoke INVOKE_VIRTUAL found: "
                      << dex_file->PrettyMethod(method_index);
           return false;
         }
         found_invoke = true;
-        *dex_pc = it.CurrentDexPc();
+        *dex_pc = inst.DexPc();
       }
     }
     if (!found_invoke) {
@@ -795,7 +798,7 @@ class ProfMan FINAL {
       const DexFile* dex_file = class_ref.dex_file;
       const auto& dex_resolved_classes = resolved_class_set.emplace(
             dex_file->GetLocation(),
-            dex_file->GetBaseLocation(),
+            DexFileLoader::GetBaseLocation(dex_file->GetLocation()),
             dex_file->GetLocationChecksum(),
             dex_file->NumMethodIds());
       dex_resolved_classes.first->AddClass(class_ref.TypeIndex());

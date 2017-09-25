@@ -34,6 +34,7 @@
 #include "class_linker.h"
 #include "compiler_callbacks.h"
 #include "dex_file-inl.h"
+#include "dex_file_loader.h"
 #include "gc/heap.h"
 #include "gc_root-inl.h"
 #include "gtest/gtest.h"
@@ -372,7 +373,8 @@ std::unique_ptr<const DexFile> CommonRuntimeTestImpl::LoadExpectSingleDexFile(
   std::string error_msg;
   MemMap::Init();
   static constexpr bool kVerifyChecksum = true;
-  if (!DexFile::Open(location, location, kVerifyChecksum, &error_msg, &dex_files)) {
+  if (!DexFileLoader::Open(
+        location, location, /* verify */ true, kVerifyChecksum, &error_msg, &dex_files)) {
     LOG(FATAL) << "Could not open .dex file '" << location << "': " << error_msg << "\n";
     UNREACHABLE();
   } else {
@@ -571,8 +573,11 @@ std::vector<std::unique_ptr<const DexFile>> CommonRuntimeTestImpl::OpenTestDexFi
   static constexpr bool kVerifyChecksum = true;
   std::string error_msg;
   std::vector<std::unique_ptr<const DexFile>> dex_files;
-  bool success = DexFile::Open(
-      filename.c_str(), filename.c_str(), kVerifyChecksum, &error_msg, &dex_files);
+  bool success = DexFileLoader::Open(filename.c_str(),
+                                     filename.c_str(),
+                                     /* verify */ true,
+                                     kVerifyChecksum,
+                                     &error_msg, &dex_files);
   CHECK(success) << "Failed to open '" << filename << "': " << error_msg;
   for (auto& dex_file : dex_files) {
     CHECK_EQ(PROT_READ, dex_file->GetPermissions());

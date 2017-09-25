@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "cdex/compact_dex_level.h"
 #include "dex_file_layout.h"
 #include "dex_ir.h"
 #include "mem_map.h"
@@ -61,6 +62,7 @@ class Options {
   bool verbose_ = false;
   bool verify_output_ = false;
   bool visualize_pattern_ = false;
+  CompactDexLevel compact_dex_level_ = CompactDexLevel::kCompactDexLevelNone;
   OutputFormat output_format_ = kOutputPlain;
   const char* output_dex_directory_ = nullptr;
   const char* output_file_name_ = nullptr;
@@ -95,7 +97,13 @@ class DexLayout {
   void DumpClass(int idx, char** last_package);
   void DumpClassAnnotations(int idx);
   void DumpClassDef(int idx);
-  void DumpCode(uint32_t idx, const dex_ir::CodeItem* code, uint32_t code_offset);
+  void DumpCode(uint32_t idx,
+                const dex_ir::CodeItem* code,
+                uint32_t code_offset,
+                const char* declaring_class_descriptor,
+                const char* method_name,
+                bool is_static,
+                const dex_ir::ProtoId* proto);
   void DumpEncodedAnnotation(dex_ir::EncodedAnnotation* annotation);
   void DumpEncodedValue(const dex_ir::EncodedValue* data);
   void DumpFileHeader();
@@ -115,7 +123,7 @@ class DexLayout {
   std::vector<dex_ir::ClassData*> LayoutClassDefsAndClassData(const DexFile* dex_file);
   int32_t LayoutCodeItems(const DexFile* dex_file,
                           std::vector<dex_ir::ClassData*> new_class_data_order);
-  void LayoutStringData(const DexFile* dex_file);
+  int32_t LayoutStringData(const DexFile* dex_file);
   bool IsNextSectionCodeItemAligned(uint32_t offset);
   template<class T> void FixupSection(std::map<uint32_t, std::unique_ptr<T>>& map, uint32_t diff);
   void FixupSections(uint32_t offset, uint32_t diff);

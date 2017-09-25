@@ -35,6 +35,7 @@
 
 #include "dex_file-inl.h"
 #include "dex_file_layout.h"
+#include "dex_file_loader.h"
 #include "dex_file_types.h"
 #include "dex_file_verifier.h"
 #include "dex_instruction-inl.h"
@@ -51,6 +52,11 @@ namespace art {
 
 using android::base::StringPrintf;
 
+// Setting this to false disables class def layout entirely, which is stronger than strictly
+// necessary to ensure the partial order w.r.t. class derivation. TODO: Re-enable (b/68317550).
+static constexpr bool kChangeClassDefOrder = false;
+
+static constexpr uint32_t kDataSectionAlignment = sizeof(uint32_t) * 2;
 static constexpr uint32_t kDexCodeItemAlignment = 4;
 
 /*
@@ -819,37 +825,6 @@ void DexLayout::DumpCatches(const dex_ir::CodeItem* code) {
 }
 
 /*
- * Dumps all positions table entries associated with the code.
- */
-void DexLayout::DumpPositionInfo(const dex_ir::CodeItem* code) {
-  dex_ir::DebugInfoItem* debug_info = code->DebugInfo();
-  if (debug_info == nullptr) {
-    return;
-  }
-  std::vector<std::unique_ptr<dex_ir::PositionInfo>>& positions = debug_info->GetPositionInfo();
-  for (size_t i = 0; i < positions.size(); ++i) {
-    fprintf(out_file_, "        0x%04x line=%d\n", positions[i]->address_, positions[i]->line_);
-  }
-}
-
-/*
- * Dumps all locals table entries associated with the code.
- */
-void DexLayout::DumpLocalInfo(const dex_ir::CodeItem* code) {
-  dex_ir::DebugInfoItem* debug_info = code->DebugInfo();
-  if (debug_info == nullptr) {
-    return;
-  }
-  std::vector<std::unique_ptr<dex_ir::LocalInfo>>& locals = debug_info->GetLocalInfo();
-  for (size_t i = 0; i < locals.size(); ++i) {
-    dex_ir::LocalInfo* entry = locals[i].get();
-    fprintf(out_file_, "        0x%04x - 0x%04x reg=%d %s %s %s\n",
-            entry->start_address_, entry->end_address_, entry->reg_,
-            entry->name_.c_str(), entry->descriptor_.c_str(), entry->signature_.c_str());
-  }
-}
-
-/*
  * Dumps a single instruction.
  */
 void DexLayout::DumpInstruction(const dex_ir::CodeItem* code,
@@ -1079,22 +1054,70 @@ void DexLayout::DumpBytecodes(uint32_t idx, const dex_ir::CodeItem* code, uint32
           code_offset, code_offset, dot.c_str(), name, type_descriptor.c_str());
 
   // Iterate over all instructions.
-  IterationRange<DexInstructionIterator> instructions = code->Instructions();
-  for (auto inst = instructions.begin(); inst != instructions.end(); ++inst) {
-    const uint32_t dex_pc = inst.GetDexPC(instructions.begin());
+  for (const DexInstructionPcPair& inst : code->Instructions()) {
     const uint32_t insn_width = inst->SizeInCodeUnits();
     if (insn_width == 0) {
-      fprintf(stderr, "GLITCH: zero-width instruction at idx=0x%04x\n", dex_pc);
+      fprintf(stderr, "GLITCH: zero-width instruction at idx=0x%04x\n", inst.DexPc());
       break;
     }
-    DumpInstruction(code, code_offset, dex_pc, insn_width, &*inst);
+    DumpInstruction(code, code_offset, inst.DexPc(), insn_width, &inst.Inst());
   }  // for
 }
 
 /*
+ * Callback for dumping each positions table entry.
+ */
+static bool DumpPositionsCb(void* context, const DexFile::PositionInfo& entry) {
+  FILE* out_file = reinterpret_cast<FILE*>(context);
+  fprintf(out_file, "        0x%04x line=%d\n", entry.address_, entry.line_);
+  return false;
+}
+
+/*
+ * Callback for dumping locals table entry.
+ */
+static void DumpLocalsCb(void* context, const DexFile::LocalInfo& entry) {
+  const char* signature = entry.signature_ != nullptr ? entry.signature_ : "";
+  FILE* out_file = reinterpret_cast<FILE*>(context);
+  fprintf(out_file, "        0x%04x - 0x%04x reg=%d %s %s %s\n",
+          entry.start_address_, entry.end_address_, entry.reg_,
+          entry.name_, entry.descriptor_, signature);
+}
+
+/*
+ * Lookup functions.
+ */
+static const char* StringDataByIdx(uint32_t idx, dex_ir::Collections& collections) {
+  dex_ir::StringId* string_id = collections.GetStringIdOrNullPtr(idx);
+  if (string_id == nullptr) {
+    return nullptr;
+  }
+  return string_id->Data();
+}
+
+static const char* StringDataByTypeIdx(uint16_t idx, dex_ir::Collections& collections) {
+  dex_ir::TypeId* type_id = collections.GetTypeIdOrNullPtr(idx);
+  if (type_id == nullptr) {
+    return nullptr;
+  }
+  dex_ir::StringId* string_id = type_id->GetStringId();
+  if (string_id == nullptr) {
+    return nullptr;
+  }
+  return string_id->Data();
+}
+
+
+/*
  * Dumps code of a method.
  */
-void DexLayout::DumpCode(uint32_t idx, const dex_ir::CodeItem* code, uint32_t code_offset) {
+void DexLayout::DumpCode(uint32_t idx,
+                         const dex_ir::CodeItem* code,
+                         uint32_t code_offset,
+                         const char* declaring_class_descriptor,
+                         const char* method_name,
+                         bool is_static,
+                         const dex_ir::ProtoId* proto) {
   fprintf(out_file_, "      registers     : %d\n", code->RegistersSize());
   fprintf(out_file_, "      ins           : %d\n", code->InsSize());
   fprintf(out_file_, "      outs          : %d\n", code->OutsSize());
@@ -1110,10 +1133,48 @@ void DexLayout::DumpCode(uint32_t idx, const dex_ir::CodeItem* code, uint32_t co
   DumpCatches(code);
 
   // Positions and locals table in the debug info.
+  dex_ir::DebugInfoItem* debug_info = code->DebugInfo();
   fprintf(out_file_, "      positions     : \n");
-  DumpPositionInfo(code);
+  if (debug_info != nullptr) {
+    DexFile::DecodeDebugPositionInfo(debug_info->GetDebugInfo(),
+                                     [this](uint32_t idx) {
+                                       return StringDataByIdx(idx, this->header_->GetCollections());
+                                     },
+                                     DumpPositionsCb,
+                                     out_file_);
+  }
   fprintf(out_file_, "      locals        : \n");
-  DumpLocalInfo(code);
+  if (debug_info != nullptr) {
+    std::vector<const char*> arg_descriptors;
+    const dex_ir::TypeList* parameters = proto->Parameters();
+    if (parameters != nullptr) {
+      const dex_ir::TypeIdVector* parameter_type_vector = parameters->GetTypeList();
+      if (parameter_type_vector != nullptr) {
+        for (const dex_ir::TypeId* type_id : *parameter_type_vector) {
+          arg_descriptors.push_back(type_id->GetStringId()->Data());
+        }
+      }
+    }
+    DexFile::DecodeDebugLocalInfo(debug_info->GetDebugInfo(),
+                                  "DexLayout in-memory",
+                                  declaring_class_descriptor,
+                                  arg_descriptors,
+                                  method_name,
+                                  is_static,
+                                  code->RegistersSize(),
+                                  code->InsSize(),
+                                  code->InsnsSize(),
+                                  [this](uint32_t idx) {
+                                    return StringDataByIdx(idx, this->header_->GetCollections());
+                                  },
+                                  [this](uint32_t idx) {
+                                    return
+                                        StringDataByTypeIdx(dchecked_integral_cast<uint16_t>(idx),
+                                                            this->header_->GetCollections());
+                                  },
+                                  DumpLocalsCb,
+                                  out_file_);
+  }
 }
 
 /*
@@ -1140,7 +1201,13 @@ void DexLayout::DumpMethod(uint32_t idx, uint32_t flags, const dex_ir::CodeItem*
       fprintf(out_file_, "      code          : (none)\n");
     } else {
       fprintf(out_file_, "      code          -\n");
-      DumpCode(idx, code, code->GetOffset());
+      DumpCode(idx,
+               code,
+               code->GetOffset(),
+               back_descriptor,
+               name,
+               (flags & kAccStatic) != 0,
+               method_id->Proto());
     }
     if (options_.disassemble_) {
       fputc('\n', out_file_);
@@ -1517,9 +1584,13 @@ std::vector<dex_ir::ClassData*> DexLayout::LayoutClassDefsAndClassData(const Dex
   std::vector<dex_ir::ClassData*> new_class_data_order;
   for (uint32_t i = 0; i < new_class_def_order.size(); ++i) {
     dex_ir::ClassDef* class_def = new_class_def_order[i];
-    class_def->SetIndex(i);
-    class_def->SetOffset(class_defs_offset);
-    class_defs_offset += dex_ir::ClassDef::ItemSize();
+    if (kChangeClassDefOrder) {
+      // This produces dex files that violate the spec since the super class class_def is supposed
+      // to occur before any subclasses.
+      class_def->SetIndex(i);
+      class_def->SetOffset(class_defs_offset);
+      class_defs_offset += dex_ir::ClassDef::ItemSize();
+    }
     dex_ir::ClassData* class_data = class_def->GetClassData();
     if (class_data != nullptr && visited_class_data.find(class_data) == visited_class_data.end()) {
       class_data->SetOffset(class_data_offset);
@@ -1531,7 +1602,7 @@ std::vector<dex_ir::ClassData*> DexLayout::LayoutClassDefsAndClassData(const Dex
   return new_class_data_order;
 }
 
-void DexLayout::LayoutStringData(const DexFile* dex_file) {
+int32_t DexLayout::LayoutStringData(const DexFile* dex_file) {
   const size_t num_strings = header_->GetCollections().StringIds().size();
   std::vector<bool> is_shorty(num_strings, false);
   std::vector<bool> from_hot_method(num_strings, false);
@@ -1644,13 +1715,11 @@ void DexLayout::LayoutStringData(const DexFile* dex_file) {
     offset += data->GetSize() + 1;  // Add one extra for null.
   }
   if (offset > max_offset) {
-    const uint32_t diff = offset - max_offset;
+    return offset - max_offset;
     // If we expanded the string data section, we need to update the offsets or else we will
     // corrupt the next section when writing out.
-    FixupSections(header_->GetCollections().StringDatasOffset(), diff);
-    // Update file size.
-    header_->SetFileSize(header_->FileSize() + diff);
   }
+  return 0;
 }
 
 // Orders code items according to specified class data ordering.
@@ -1730,6 +1799,10 @@ int32_t DexLayout::LayoutCodeItems(const DexFile* dex_file,
     }
   }
 
+  // Removing duplicate CodeItems may expose other issues with downstream
+  // optimizations such as quickening.  But we need to ensure at least the weak
+  // forms of it currently in use do not break layout optimizations.
+  std::map<dex_ir::CodeItem*, uint32_t> original_code_item_offset;
   // Total_diff includes diffs generated by clinits, executed, and non-executed methods.
   int32_t total_diff = 0;
   // The relative placement has no effect on correctness; it is used to ensure
@@ -1748,11 +1821,22 @@ int32_t DexLayout::LayoutCodeItems(const DexFile* dex_file,
           dex_ir::CodeItem* code_item = method->GetCodeItem();
           if (code_item != nullptr &&
               code_items_set.find(code_item) != code_items_set.end()) {
-            diff += UnsignedLeb128Size(code_item_offset)
-                - UnsignedLeb128Size(code_item->GetOffset());
-            code_item->SetOffset(code_item_offset);
-            code_item_offset +=
-                RoundUp(code_item->GetSize(), kDexCodeItemAlignment);
+            // Compute where the CodeItem was originally laid out.
+            uint32_t original_offset = code_item->GetOffset();
+            auto it = original_code_item_offset.find(code_item);
+            if (it != original_code_item_offset.end()) {
+              original_offset = it->second;
+            } else {
+              original_code_item_offset[code_item] = code_item->GetOffset();
+              // Assign the new offset and move the pointer to allocate space.
+              code_item->SetOffset(code_item_offset);
+              code_item_offset +=
+                  RoundUp(code_item->GetSize(), kDexCodeItemAlignment);
+            }
+            // Update the size of the encoded methods to reflect that the offset difference
+            // may have changed the ULEB128 length.
+            diff +=
+                UnsignedLeb128Size(code_item->GetOffset()) - UnsignedLeb128Size(original_offset);
           }
         }
       }
@@ -1875,13 +1959,23 @@ void DexLayout::FixupSections(uint32_t offset, uint32_t diff) {
 }
 
 void DexLayout::LayoutOutputFile(const DexFile* dex_file) {
-  LayoutStringData(dex_file);
-  std::vector<dex_ir::ClassData*> new_class_data_order = LayoutClassDefsAndClassData(dex_file);
-  int32_t diff = LayoutCodeItems(dex_file, new_class_data_order);
-  // Move sections after ClassData by diff bytes.
-  FixupSections(header_->GetCollections().ClassDatasOffset(), diff);
+  const int32_t string_diff = LayoutStringData(dex_file);
+  // If we expanded the string data section, we need to update the offsets or else we will
+  // corrupt the next section when writing out.
+  FixupSections(header_->GetCollections().StringDatasOffset(), string_diff);
   // Update file size.
-  header_->SetFileSize(header_->FileSize() + diff);
+  header_->SetFileSize(header_->FileSize() + string_diff);
+
+  std::vector<dex_ir::ClassData*> new_class_data_order = LayoutClassDefsAndClassData(dex_file);
+  const int32_t code_item_diff = LayoutCodeItems(dex_file, new_class_data_order);
+  // Move sections after ClassData by diff bytes.
+  FixupSections(header_->GetCollections().ClassDatasOffset(), code_item_diff);
+
+  // Update file and data size.
+  // The data size must be aligned to kDataSectionAlignment.
+  const int32_t total_diff = code_item_diff + string_diff;
+  header_->SetDataSize(RoundUp(header_->DataSize() + total_diff, kDataSectionAlignment));
+  header_->SetFileSize(header_->FileSize() + total_diff);
 }
 
 void DexLayout::OutputDexFile(const DexFile* dex_file) {
@@ -1922,22 +2016,22 @@ void DexLayout::OutputDexFile(const DexFile* dex_file) {
     }
     return;
   }
-  DexWriter::Output(header_, mem_map_.get());
+  DexWriter::Output(header_, mem_map_.get(), options_.compact_dex_level_);
   if (new_file != nullptr) {
     UNUSED(new_file->FlushCloseOrErase());
   }
   // Verify the output dex file's structure for debug builds.
   if (kIsDebugBuild) {
     std::string location = "memory mapped file for " + dex_file_location;
-    std::unique_ptr<const DexFile> output_dex_file(DexFile::Open(mem_map_->Begin(),
-                                                                 mem_map_->Size(),
-                                                                 location,
-                                                                 header_->Checksum(),
-                                                                 /*oat_dex_file*/ nullptr,
-                                                                 /*verify*/ true,
-                                                                 /*verify_checksum*/ false,
-                                                                 &error_msg));
-    DCHECK(output_dex_file != nullptr) << "Failed to re-open output file:" << error_msg;
+    std::unique_ptr<const DexFile> output_dex_file(DexFileLoader::Open(mem_map_->Begin(),
+                                                                       mem_map_->Size(),
+                                                                       location,
+                                                                       header_->Checksum(),
+                                                                       /*oat_dex_file*/ nullptr,
+                                                                       /*verify*/ true,
+                                                                       /*verify_checksum*/ false,
+                                                                       &error_msg));
+    DCHECK(output_dex_file != nullptr) << " Failed to re-open output file:" << error_msg;
   }
   // Do IR-level comparison between input and output. This check ignores potential differences
   // due to layout, so offsets are not checked. Instead, it checks the data contents of each item.
@@ -1998,7 +2092,8 @@ int DexLayout::ProcessFile(const char* file_name) {
   const bool verify_checksum = !options_.ignore_bad_checksum_;
   std::string error_msg;
   std::vector<std::unique_ptr<const DexFile>> dex_files;
-  if (!DexFile::Open(file_name, file_name, verify_checksum, &error_msg, &dex_files)) {
+  if (!DexFileLoader::Open(
+        file_name, file_name, /* verify */ true, verify_checksum, &error_msg, &dex_files)) {
     // Display returned error message to user. Note that this error behavior
     // differs from the error messages shown by the original Dalvik dexdump.
     fputs(error_msg.c_str(), stderr);

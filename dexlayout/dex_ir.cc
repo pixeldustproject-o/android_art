@@ -39,24 +39,6 @@ static uint64_t ReadVarWidth(const uint8_t** data, uint8_t length, bool sign_ext
   return value;
 }
 
-static bool GetPositionsCb(void* context, const DexFile::PositionInfo& entry) {
-  DebugInfoItem* debug_info = reinterpret_cast<DebugInfoItem*>(context);
-  PositionInfoVector& positions = debug_info->GetPositionInfo();
-  positions.push_back(std::unique_ptr<PositionInfo>(new PositionInfo(entry.address_, entry.line_)));
-  return false;
-}
-
-static void GetLocalsCb(void* context, const DexFile::LocalInfo& entry) {
-  DebugInfoItem* debug_info = reinterpret_cast<DebugInfoItem*>(context);
-  LocalInfoVector& locals = debug_info->GetLocalInfo();
-  const char* name = entry.name_ != nullptr ? entry.name_ : "(null)";
-  const char* descriptor = entry.descriptor_ != nullptr ? entry.descriptor_ : "";
-  const char* signature = entry.signature_ != nullptr ? entry.signature_ : "";
-  locals.push_back(std::unique_ptr<LocalInfo>(
-      new LocalInfo(name, descriptor, signature, entry.start_address_, entry.end_address_,
-                    entry.reg_)));
-}
-
 static uint32_t GetDebugInfoStreamSize(const uint8_t* debug_info_stream) {
   const uint8_t* stream = debug_info_stream;
   DecodeUnsignedLeb128(&stream);  // line_start
@@ -185,10 +167,17 @@ static bool GetIdsFromByteCode(Collections& collections,
                                std::vector<MethodId*>* method_ids,
                                std::vector<FieldId*>* field_ids) {
   bool has_id = false;
-  for (const Instruction& instruction : code->Instructions()) {
-    CHECK_GT(instruction.SizeInCodeUnits(), 0u);
+  IterationRange<DexInstructionIterator> instructions = code->Instructions();
+  SafeDexInstructionIterator it(instructions.begin(), instructions.end());
+  for (; !it.IsErrorState() && it < instructions.end(); ++it) {
+    // In case the instruction goes past the end of the code item, make sure to not process it.
+    SafeDexInstructionIterator next = it;
+    ++next;
+    if (next.IsErrorState()) {
+      break;
+    }
     has_id |= GetIdFromInstruction(collections,
-                                   &instruction,
+                                   &it.Inst(),
                                    type_ids,
                                    string_ids,
                                    method_ids,
@@ -421,8 +410,23 @@ EncodedArrayItem* Collections::CreateEncodedArrayItem(const uint8_t* static_data
   return encoded_array_item;
 }
 
-AnnotationItem* Collections::CreateAnnotationItem(const DexFile::AnnotationItem* annotation,
-                                                  uint32_t offset) {
+void Collections::AddAnnotationsFromMapListSection(const DexFile& dex_file,
+                                                   uint32_t start_offset,
+                                                   uint32_t count) {
+  uint32_t current_offset = start_offset;
+  for (size_t i = 0; i < count; ++i) {
+    // Annotation that we didn't process already, add it to the set.
+    const DexFile::AnnotationItem* annotation = dex_file.GetAnnotationItemAtOffset(current_offset);
+    AnnotationItem* annotation_item = CreateAnnotationItem(dex_file, annotation);
+    DCHECK(annotation_item != nullptr);
+    current_offset += annotation_item->GetSize();
+  }
+}
+
+AnnotationItem* Collections::CreateAnnotationItem(const DexFile& dex_file,
+                                                  const DexFile::AnnotationItem* annotation) {
+  const uint8_t* const start_data = reinterpret_cast<const uint8_t*>(annotation);
+  const uint32_t offset = start_data - dex_file.Begin();
   auto found_annotation_item = AnnotationItems().find(offset);
   if (found_annotation_item != AnnotationItems().end()) {
     return found_annotation_item->second.get();
@@ -431,10 +435,11 @@ AnnotationItem* Collections::CreateAnnotationItem(const DexFile::AnnotationItem*
   const uint8_t* annotation_data = annotation->annotation_;
   std::unique_ptr<EncodedValue> encoded_value(
       ReadEncodedValue(&annotation_data, DexFile::kDexAnnotationAnnotation, 0));
-  // TODO: Calculate the size of the annotation.
   AnnotationItem* annotation_item =
       new AnnotationItem(visibility, encoded_value->ReleaseEncodedAnnotation());
-  annotation_items_.AddItem(annotation_item, offset);
+  annotation_item->SetOffset(offset);
+  annotation_item->SetSize(annotation_data - start_data);
+  annotation_items_.AddItem(annotation_item, annotation_item->GetOffset());
   return annotation_item;
 }
 
@@ -455,8 +460,7 @@ AnnotationSetItem* Collections::CreateAnnotationSetItem(const DexFile& dex_file,
     if (annotation == nullptr) {
       continue;
     }
-    AnnotationItem* annotation_item =
-        CreateAnnotationItem(annotation, disk_annotations_item->entries_[i]);
+    AnnotationItem* annotation_item = CreateAnnotationItem(dex_file, annotation);
     items->push_back(annotation_item);
   }
   AnnotationSetItem* annotation_set_item = new AnnotationSetItem(items);
@@ -693,12 +697,6 @@ MethodItem* Collections::GenerateMethodItem(const DexFile& dex_file, ClassDataIt
       code_item = CreateCodeItem(dex_file, *disk_code_item, cdii.GetMethodCodeItemOffset());
     }
     debug_info = code_item->DebugInfo();
-  }
-  if (debug_info != nullptr) {
-    bool is_static = (access_flags & kAccStatic) != 0;
-    dex_file.DecodeDebugLocalInfo(
-        disk_code_item, is_static, cdii.GetMemberIndex(), GetLocalsCb, debug_info);
-    dex_file.DecodeDebugPositionInfo(disk_code_item, GetPositionsCb, debug_info);
   }
   return new MethodItem(access_flags, method_id, code_item);
 }

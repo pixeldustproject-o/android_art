@@ -299,6 +299,7 @@ CompilerDriver::CompilerDriver(
       image_classes_(image_classes),
       classes_to_compile_(compiled_classes),
       methods_to_compile_(compiled_methods),
+      number_of_soft_verifier_failures_(0),
       had_hard_verifier_failure_(false),
       parallel_thread_count_(thread_count),
       stats_(new AOTCompilationStats),
@@ -708,13 +709,13 @@ static void ResolveConstStrings(Handle<mirror::DexCache> dex_cache,
   }
 
   ClassLinker* const class_linker = Runtime::Current()->GetClassLinker();
-  for (const Instruction& inst : code_item->Instructions()) {
-    switch (inst.Opcode()) {
+  for (const DexInstructionPcPair& inst : code_item->Instructions()) {
+    switch (inst->Opcode()) {
       case Instruction::CONST_STRING:
       case Instruction::CONST_STRING_JUMBO: {
-        dex::StringIndex string_index((inst.Opcode() == Instruction::CONST_STRING)
-            ? inst.VRegB_21c()
-            : inst.VRegB_31c());
+        dex::StringIndex string_index((inst->Opcode() == Instruction::CONST_STRING)
+            ? inst->VRegB_21c()
+            : inst->VRegB_31c());
         mirror::String* string = class_linker->ResolveString(dex_file, string_index, dex_cache);
         CHECK(string != nullptr) << "Could not allocate a string when forcing determinism";
         break;
@@ -867,6 +868,12 @@ void CompilerDriver::PreCompile(jobject class_loader,
     // instances of this thread's stack.
     LOG(FATAL_WITHOUT_ABORT) << "Had a hard failure verifying all classes, and was asked to abort "
                              << "in such situations. Please check the log.";
+    abort();
+  } else if (number_of_soft_verifier_failures_ > 0 &&
+             GetCompilerOptions().AbortOnSoftVerifierFailure()) {
+    LOG(FATAL_WITHOUT_ABORT) << "Had " << number_of_soft_verifier_failures_ << " soft failure(s) "
+                             << "verifying all classes, and was asked to abort in such situations. "
+                             << "Please check the log.";
     abort();
   }
 
@@ -2014,13 +2021,13 @@ class VerifyClassVisitor : public CompilationVisitor {
         LOG(ERROR) << "Verification failed on class " << PrettyDescriptor(descriptor)
                    << " because: " << error_msg;
         manager_->GetCompiler()->SetHadHardVerifierFailure();
+      } else if (failure_kind == verifier::FailureKind::kSoftFailure) {
+        manager_->GetCompiler()->AddSoftVerifierFailure();
       } else {
         // Force a soft failure for the VerifierDeps. This is a sanity measure, as
         // the vdex file already records that the class hasn't been resolved. It avoids
         // trying to do future verification optimizations when processing the vdex file.
-        DCHECK(failure_kind == verifier::FailureKind::kSoftFailure ||
-               failure_kind == verifier::FailureKind::kNoFailure)
-            << failure_kind;
+        DCHECK(failure_kind == verifier::FailureKind::kNoFailure) << failure_kind;
         failure_kind = verifier::FailureKind::kSoftFailure;
       }
     } else if (!SkipClass(jclass_loader, dex_file, klass.Get())) {
@@ -2032,6 +2039,8 @@ class VerifyClassVisitor : public CompilationVisitor {
         CHECK(soa.Self()->IsExceptionPending());
         soa.Self()->ClearException();
         manager_->GetCompiler()->SetHadHardVerifierFailure();
+      } else if (failure_kind == verifier::FailureKind::kSoftFailure) {
+        manager_->GetCompiler()->AddSoftVerifierFailure();
       }
 
       CHECK(klass->ShouldVerifyAtRuntime() || klass->IsVerified() || klass->IsErroneous())
@@ -2097,7 +2106,9 @@ void CompilerDriver::VerifyDexFile(jobject class_loader,
   ClassLinker* class_linker = Runtime::Current()->GetClassLinker();
   ParallelCompilationManager context(class_linker, class_loader, this, &dex_file, dex_files,
                                      thread_pool);
-  verifier::HardFailLogMode log_level = GetCompilerOptions().AbortOnHardVerifierFailure()
+  bool abort_on_verifier_failures = GetCompilerOptions().AbortOnHardVerifierFailure()
+                                    || GetCompilerOptions().AbortOnSoftVerifierFailure();
+  verifier::HardFailLogMode log_level = abort_on_verifier_failures
                               ? verifier::HardFailLogMode::kLogInternalFatal
                               : verifier::HardFailLogMode::kLogWarning;
   VerifyClassVisitor visitor(&context, log_level);
@@ -2378,14 +2389,14 @@ class InitializeClassVisitor : public CompilationVisitor {
     if (clinit != nullptr) {
       const DexFile::CodeItem* code_item = clinit->GetCodeItem();
       DCHECK(code_item != nullptr);
-      for (const Instruction& inst : code_item->Instructions()) {
-        if (inst.Opcode() == Instruction::CONST_STRING) {
+      for (const DexInstructionPcPair& inst : code_item->Instructions()) {
+        if (inst->Opcode() == Instruction::CONST_STRING) {
           ObjPtr<mirror::String> s = class_linker->ResolveString(
-              *dex_file, dex::StringIndex(inst.VRegB_21c()), h_dex_cache);
+              *dex_file, dex::StringIndex(inst->VRegB_21c()), h_dex_cache);
           CHECK(s != nullptr);
-        } else if (inst.Opcode() == Instruction::CONST_STRING_JUMBO) {
+        } else if (inst->Opcode() == Instruction::CONST_STRING_JUMBO) {
           ObjPtr<mirror::String> s = class_linker->ResolveString(
-              *dex_file, dex::StringIndex(inst.VRegB_31c()), h_dex_cache);
+              *dex_file, dex::StringIndex(inst->VRegB_31c()), h_dex_cache);
           CHECK(s != nullptr);
         }
       }

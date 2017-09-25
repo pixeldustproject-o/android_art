@@ -20,6 +20,7 @@
 #define ART_DEXLAYOUT_DEX_WRITER_H_
 
 #include "base/unix_file/fd_file.h"
+#include "cdex/compact_dex_level.h"
 #include "dex_ir.h"
 #include "mem_map.h"
 #include "os.h"
@@ -28,11 +29,13 @@ namespace art {
 
 class DexWriter {
  public:
-  DexWriter(dex_ir::Header* header, MemMap* mem_map) : header_(header), mem_map_(mem_map) { }
+  DexWriter(dex_ir::Header* header, MemMap* mem_map) : header_(header), mem_map_(mem_map) {}
 
-  static void Output(dex_ir::Header* header, MemMap* mem_map);
+  static void Output(dex_ir::Header* header, MemMap* mem_map, CompactDexLevel compact_dex_level);
 
- private:
+  virtual ~DexWriter() {}
+
+ protected:
   void WriteMemMap();
 
   size_t Write(const void* buffer, size_t length, size_t offset);
@@ -62,11 +65,12 @@ class DexWriter {
   void WriteCallSites();
   void WriteMethodHandles();
   void WriteMapItem();
-  void WriteHeader();
+  virtual void WriteHeader();
 
   dex_ir::Header* const header_;
   MemMap* const mem_map_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(DexWriter);
 };
 

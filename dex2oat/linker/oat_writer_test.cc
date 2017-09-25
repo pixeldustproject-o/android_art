@@ -26,6 +26,7 @@
 #include "compiled_method-inl.h"
 #include "compiler.h"
 #include "debug/method_debug_info.h"
+#include "dex_file_loader.h"
 #include "dex/quick_compiler_callbacks.h"
 #include "dex/verification_results.h"
 #include "driver/compiler_driver.h"
@@ -126,7 +127,8 @@ class OatTest : public CommonCompilerTest {
     TimingLogger timings("WriteElf", false, false);
     OatWriter oat_writer(/*compiling_boot_image*/false,
                          &timings,
-                         /*profile_compilation_info*/nullptr);
+                         /*profile_compilation_info*/nullptr,
+                         CompactDexLevel::kCompactDexLevelNone);
     for (const DexFile* dex_file : dex_files) {
       ArrayRef<const uint8_t> raw_dex_file(
           reinterpret_cast<const uint8_t*>(&dex_file->GetHeader()),
@@ -147,7 +149,10 @@ class OatTest : public CommonCompilerTest {
                 bool verify,
                 ProfileCompilationInfo* profile_compilation_info) {
     TimingLogger timings("WriteElf", false, false);
-    OatWriter oat_writer(/*compiling_boot_image*/false, &timings, profile_compilation_info);
+    OatWriter oat_writer(/*compiling_boot_image*/false,
+                         &timings,
+                         profile_compilation_info,
+                         CompactDexLevel::kCompactDexLevelNone);
     for (const char* dex_filename : dex_filenames) {
       if (!oat_writer.AddDexFileSource(dex_filename, dex_filename)) {
         return false;
@@ -165,7 +170,8 @@ class OatTest : public CommonCompilerTest {
     TimingLogger timings("WriteElf", false, false);
     OatWriter oat_writer(/*compiling_boot_image*/false,
                          &timings,
-                         /*profile_compilation_info*/nullptr);
+                         /*profile_compilation_info*/nullptr,
+                         CompactDexLevel::kCompactDexLevelNone);
     if (!oat_writer.AddZippedDexFilesSource(std::move(zip_fd), location)) {
       return false;
     }
@@ -745,14 +751,14 @@ void OatTest::TestZipFileInput(bool verify) {
       ASSERT_EQ(0, memcmp(&dex_file1_data->GetHeader(),
                           &opened_dex_file1->GetHeader(),
                           dex_file1_data->GetHeader().file_size_));
-      ASSERT_EQ(DexFile::GetMultiDexLocation(0, zip_file.GetFilename().c_str()),
+      ASSERT_EQ(DexFileLoader::GetMultiDexLocation(0, zip_file.GetFilename().c_str()),
                 opened_dex_file1->GetLocation());
 
       ASSERT_EQ(dex_file2_data->GetHeader().file_size_, opened_dex_file2->GetHeader().file_size_);
       ASSERT_EQ(0, memcmp(&dex_file2_data->GetHeader(),
                           &opened_dex_file2->GetHeader(),
                           dex_file2_data->GetHeader().file_size_));
-      ASSERT_EQ(DexFile::GetMultiDexLocation(1, zip_file.GetFilename().c_str()),
+      ASSERT_EQ(DexFileLoader::GetMultiDexLocation(1, zip_file.GetFilename().c_str()),
                 opened_dex_file2->GetLocation());
     }
   }
@@ -794,14 +800,14 @@ void OatTest::TestZipFileInput(bool verify) {
       ASSERT_EQ(0, memcmp(&dex_file1_data->GetHeader(),
                           &opened_dex_file1->GetHeader(),
                           dex_file1_data->GetHeader().file_size_));
-      ASSERT_EQ(DexFile::GetMultiDexLocation(0, zip_file.GetFilename().c_str()),
+      ASSERT_EQ(DexFileLoader::GetMultiDexLocation(0, zip_file.GetFilename().c_str()),
                 opened_dex_file1->GetLocation());
 
       ASSERT_EQ(dex_file2_data->GetHeader().file_size_, opened_dex_file2->GetHeader().file_size_);
       ASSERT_EQ(0, memcmp(&dex_file2_data->GetHeader(),
                           &opened_dex_file2->GetHeader(),
                           dex_file2_data->GetHeader().file_size_));
-      ASSERT_EQ(DexFile::GetMultiDexLocation(1, zip_file.GetFilename().c_str()),
+      ASSERT_EQ(DexFileLoader::GetMultiDexLocation(1, zip_file.GetFilename().c_str()),
                 opened_dex_file2->GetLocation());
     }
   }

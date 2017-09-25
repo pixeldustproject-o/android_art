@@ -33,6 +33,7 @@
 #include "dex2oat_environment_test.h"
 #include "dex2oat_return_codes.h"
 #include "dex_file-inl.h"
+#include "dex_file_loader.h"
 #include "jit/profile_compilation_info.h"
 #include "oat.h"
 #include "oat_file.h"
@@ -677,7 +678,8 @@ class Dex2oatLayoutTest : public Dex2oatTest {
     const char* location = dex_location.c_str();
     std::string error_msg;
     std::vector<std::unique_ptr<const DexFile>> dex_files;
-    ASSERT_TRUE(DexFile::Open(location, location, true, &error_msg, &dex_files));
+    ASSERT_TRUE(DexFileLoader::Open(
+        location, location, /* verify */ true, /* verify_checksum */ true, &error_msg, &dex_files));
     EXPECT_EQ(dex_files.size(), 1U);
     std::unique_ptr<const DexFile>& dex_file = dex_files[0];
     GenerateProfile(profile_location,
@@ -811,7 +813,8 @@ class Dex2oatLayoutTest : public Dex2oatTest {
 
     const char* location = dex_location.c_str();
     std::vector<std::unique_ptr<const DexFile>> dex_files;
-    ASSERT_TRUE(DexFile::Open(location, location, true, &error_msg, &dex_files));
+    ASSERT_TRUE(DexFileLoader::Open(
+        location, location, /* verify */ true, /* verify_checksum */ true, &error_msg, &dex_files));
     EXPECT_EQ(dex_files.size(), 1U);
     std::unique_ptr<const DexFile>& old_dex_file = dex_files[0];
 
@@ -822,13 +825,13 @@ class Dex2oatLayoutTest : public Dex2oatTest {
       ASSERT_LT(class_def_count, std::numeric_limits<uint16_t>::max());
       ASSERT_GE(class_def_count, 2U);
 
-      // The new layout swaps the classes at indexes 0 and 1.
+      // Make sure the indexes stay the same.
       std::string old_class0 = old_dex_file->PrettyType(old_dex_file->GetClassDef(0).class_idx_);
       std::string old_class1 = old_dex_file->PrettyType(old_dex_file->GetClassDef(1).class_idx_);
       std::string new_class0 = new_dex_file->PrettyType(new_dex_file->GetClassDef(0).class_idx_);
       std::string new_class1 = new_dex_file->PrettyType(new_dex_file->GetClassDef(1).class_idx_);
-      EXPECT_EQ(old_class0, new_class1);
-      EXPECT_EQ(old_class1, new_class0);
+      EXPECT_EQ(old_class0, new_class0);
+      EXPECT_EQ(old_class1, new_class1);
     }
 
     EXPECT_EQ(odex_file->GetCompilerFilter(), CompilerFilter::kSpeedProfile);
@@ -937,8 +940,8 @@ class Dex2oatUnquickenTest : public Dex2oatTest {
                class_it.HasNext();
                class_it.Next()) {
             if (class_it.IsAtMethod() && class_it.GetMethodCodeItem() != nullptr) {
-              for (CodeItemIterator it(*class_it.GetMethodCodeItem()); !it.Done(); it.Advance()) {
-                Instruction* inst = const_cast<Instruction*>(&it.CurrentInstruction());
+              for (const DexInstructionPcPair& inst :
+                       class_it.GetMethodCodeItem()->Instructions()) {
                 ASSERT_FALSE(inst->IsQuickened());
               }
             }
@@ -1371,9 +1374,19 @@ TEST_F(Dex2oatTest, LayoutSections) {
         EXPECT_LT(code_item_offset - section_startup_only.offset_, section_startup_only.size_);
         ++startup_count;
       } else {
-        // If no flags are set, the method should be unused.
-        EXPECT_LT(code_item_offset - section_unused.offset_, section_unused.size_);
-        ++unused_count;
+        if (code_item_offset - section_unused.offset_ < section_unused.size_) {
+          // If no flags are set, the method should be unused ...
+          ++unused_count;
+        } else {
+          // or this method is part of the last code item and the end is 4 byte aligned.
+          ClassDataItemIterator it2(*dex_file, dex_file->GetClassData(*class_def));
+          it2.SkipAllFields();
+          for (; it2.HasNextDirectMethod() || it2.HasNextVirtualMethod(); it2.Next()) {
+              EXPECT_LE(it2.GetMethodCodeItemOffset(), code_item_offset);
+          }
+          uint32_t code_item_size = dex_file->FindCodeItemOffset(*class_def, method_idx);
+          EXPECT_EQ((code_item_offset + code_item_size) % 4, 0u);
+        }
       }
     }
     DCHECK(!it.HasNext());
@@ -1382,6 +1395,89 @@ TEST_F(Dex2oatTest, LayoutSections) {
     EXPECT_GT(startup_count, 0u);
     EXPECT_GT(unused_count, 0u);
   }
+}
+
+// Test that generating compact dex works.
+TEST_F(Dex2oatTest, GenerateCompactDex) {
+  std::unique_ptr<const DexFile> dex(OpenTestDexFile("ManyMethods"));
+  // Generate a compact dex based odex.
+  const std::string dir = GetScratchDir();
+  const std::string oat_filename = dir + "/base.oat";
+  const std::string vdex_filename = dir + "/base.vdex";
+  std::string error_msg;
+  const int res = GenerateOdexForTestWithStatus(
+      {dex->GetLocation()},
+      oat_filename,
+      CompilerFilter::Filter::kQuicken,
+      &error_msg,
+      {"--compact-dex-level=fast"});
+  EXPECT_EQ(res, 0);
+  // Open our generated oat file.
+  std::unique_ptr<OatFile> odex_file(OatFile::Open(oat_filename.c_str(),
+                                                   oat_filename.c_str(),
+                                                   nullptr,
+                                                   nullptr,
+                                                   false,
+                                                   /*low_4gb*/false,
+                                                   dex->GetLocation().c_str(),
+                                                   &error_msg));
+  ASSERT_TRUE(odex_file != nullptr);
+  std::vector<const OatDexFile*> oat_dex_files = odex_file->GetOatDexFiles();
+  ASSERT_EQ(oat_dex_files.size(), 1u);
+  // Check that each dex is a compact dex.
+  for (const OatDexFile* oat_dex : oat_dex_files) {
+    std::unique_ptr<const DexFile> dex_file(oat_dex->OpenDexFile(&error_msg));
+    ASSERT_TRUE(dex_file != nullptr) << error_msg;
+    ASSERT_TRUE(dex_file->IsCompactDexFile());
+  }
+}
+
+class Dex2oatVerifierAbort : public Dex2oatTest {};
+
+TEST_F(Dex2oatVerifierAbort, HardFail) {
+  // Use VerifierDeps as it has hard-failing classes.
+  std::unique_ptr<const DexFile> dex(OpenTestDexFile("VerifierDeps"));
+  std::string out_dir = GetScratchDir();
+  const std::string base_oat_name = out_dir + "/base.oat";
+  std::string error_msg;
+  const int res_fail = GenerateOdexForTestWithStatus(
+        {dex->GetLocation()},
+        base_oat_name,
+        CompilerFilter::Filter::kQuicken,
+        &error_msg,
+        {"--abort-on-hard-verifier-error"});
+  EXPECT_NE(0, res_fail);
+
+  const int res_no_fail = GenerateOdexForTestWithStatus(
+        {dex->GetLocation()},
+        base_oat_name,
+        CompilerFilter::Filter::kQuicken,
+        &error_msg,
+        {"--no-abort-on-hard-verifier-error"});
+  EXPECT_EQ(0, res_no_fail);
+}
+
+TEST_F(Dex2oatVerifierAbort, SoftFail) {
+  // Use VerifierDepsMulti as it has hard-failing classes.
+  std::unique_ptr<const DexFile> dex(OpenTestDexFile("VerifierDepsMulti"));
+  std::string out_dir = GetScratchDir();
+  const std::string base_oat_name = out_dir + "/base.oat";
+  std::string error_msg;
+  const int res_fail = GenerateOdexForTestWithStatus(
+        {dex->GetLocation()},
+        base_oat_name,
+        CompilerFilter::Filter::kQuicken,
+        &error_msg,
+        {"--abort-on-soft-verifier-error"});
+  EXPECT_NE(0, res_fail);
+
+  const int res_no_fail = GenerateOdexForTestWithStatus(
+        {dex->GetLocation()},
+        base_oat_name,
+        CompilerFilter::Filter::kQuicken,
+        &error_msg,
+        {"--no-abort-on-soft-verifier-error"});
+  EXPECT_EQ(0, res_no_fail);
 }
 
 }  // namespace art
