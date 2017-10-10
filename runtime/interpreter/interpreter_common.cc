@@ -728,6 +728,264 @@ bool DoMethodHandleInvoke(Thread* self,
   }
 }
 
+static bool UnimplementedSignaturePolymorphicMethod(Thread* self ATTRIBUTE_UNUSED,
+                                                    ShadowFrame& shadow_frame ATTRIBUTE_UNUSED,
+                                                    const Instruction* inst ATTRIBUTE_UNUSED,
+                                                    uint16_t inst_data ATTRIBUTE_UNUSED,
+                                                    JValue* result ATTRIBUTE_UNUSED)
+    REQUIRES_SHARED(Locks::mutator_lock_) {
+  UNIMPLEMENTED(FATAL) << "TODO(oth): b/65872996";
+  return false;
+}
+
+bool DoVarHandleCompareAndExchange(Thread* self,
+                                   ShadowFrame& shadow_frame,
+                                   const Instruction* inst,
+                                   uint16_t inst_data,
+                                   JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleCompareAndExchangeAcquire(Thread* self,
+                                          ShadowFrame& shadow_frame,
+                                          const Instruction* inst,
+                                          uint16_t inst_data,
+                                          JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleCompareAndExchangeRelease(Thread* self,
+                                          ShadowFrame& shadow_frame,
+                                          const Instruction* inst,
+                                          uint16_t inst_data,
+                                          JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleCompareAndSet(Thread* self,
+                              ShadowFrame& shadow_frame,
+                              const Instruction* inst,
+                              uint16_t inst_data,
+                              JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGet(Thread* self,
+                    ShadowFrame& shadow_frame,
+                    const Instruction* inst,
+                    uint16_t inst_data,
+                    JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAcquire(Thread* self,
+                           ShadowFrame& shadow_frame,
+                           const Instruction* inst,
+                           uint16_t inst_data,
+                           JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndAdd(Thread* self,
+                          ShadowFrame& shadow_frame,
+                          const Instruction* inst,
+                          uint16_t inst_data,
+                          JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndAddAcquire(Thread* self,
+                                 ShadowFrame& shadow_frame,
+                                 const Instruction* inst,
+                                 uint16_t inst_data,
+                                 JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndAddRelease(Thread* self,
+                                 ShadowFrame& shadow_frame,
+                                 const Instruction* inst,
+                                 uint16_t inst_data,
+                                 JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseAnd(Thread* self,
+                                 ShadowFrame& shadow_frame,
+                                 const Instruction* inst,
+                                 uint16_t inst_data,
+                                 JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseAndAcquire(Thread* self,
+                                        ShadowFrame& shadow_frame,
+                                        const Instruction* inst,
+                                        uint16_t inst_data,
+                                        JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseAndRelease(Thread* self,
+                                        ShadowFrame& shadow_frame,
+                                        const Instruction* inst,
+                                        uint16_t inst_data,
+                                        JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseOr(Thread* self,
+                                ShadowFrame& shadow_frame,
+                                const Instruction* inst,
+                                uint16_t inst_data,
+                                JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseOrAcquire(Thread* self,
+                                       ShadowFrame& shadow_frame,
+                                       const Instruction* inst,
+                                       uint16_t inst_data,
+                                       JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseOrRelease(Thread* self,
+                                       ShadowFrame& shadow_frame,
+                                       const Instruction* inst,
+                                       uint16_t inst_data,
+                                       JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseXor(Thread* self,
+                                 ShadowFrame& shadow_frame,
+                                 const Instruction* inst,
+                                 uint16_t inst_data,
+                                 JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseXorAcquire(Thread* self,
+                                        ShadowFrame& shadow_frame,
+                                        const Instruction* inst,
+                                        uint16_t inst_data,
+                                        JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndBitwiseXorRelease(Thread* self,
+                                        ShadowFrame& shadow_frame,
+                                        const Instruction* inst,
+                                        uint16_t inst_data,
+                                        JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndSet(Thread* self,
+                          ShadowFrame& shadow_frame,
+                          const Instruction* inst,
+                          uint16_t inst_data,
+                          JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndSetAcquire(Thread* self,
+                                 ShadowFrame& shadow_frame,
+                                 const Instruction* inst,
+                                 uint16_t inst_data,
+                                 JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetAndSetRelease(Thread* self,
+                                 ShadowFrame& shadow_frame,
+                                 const Instruction* inst,
+                                 uint16_t inst_data,
+                                 JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetOpaque(Thread* self,
+                          ShadowFrame& shadow_frame,
+                          const Instruction* inst,
+                          uint16_t inst_data,
+                          JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleGetVolatile(Thread* self,
+                            ShadowFrame& shadow_frame,
+                            const Instruction* inst,
+                            uint16_t inst_data,
+                            JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleSet(Thread* self,
+                    ShadowFrame& shadow_frame,
+                    const Instruction* inst,
+                    uint16_t inst_data,
+                    JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleSetOpaque(Thread* self,
+                          ShadowFrame& shadow_frame,
+                          const Instruction* inst,
+                          uint16_t inst_data,
+                          JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleSetRelease(Thread* self,
+                           ShadowFrame& shadow_frame,
+                           const Instruction* inst,
+                           uint16_t inst_data,
+                           JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleSetVolatile(Thread* self,
+                            ShadowFrame& shadow_frame,
+                            const Instruction* inst,
+                            uint16_t inst_data,
+                            JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleWeakCompareAndSet(Thread* self,
+                                  ShadowFrame& shadow_frame,
+                                  const Instruction* inst,
+                                  uint16_t inst_data,
+                                  JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleWeakCompareAndSetAcquire(Thread* self,
+                                         ShadowFrame& shadow_frame,
+                                         const Instruction* inst,
+                                         uint16_t inst_data,
+                                         JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleWeakCompareAndSetPlain(Thread* self,
+                                       ShadowFrame& shadow_frame,
+                                       const Instruction* inst,
+                                       uint16_t inst_data,
+                                       JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
+bool DoVarHandleWeakCompareAndSetRelease(Thread* self,
+                                         ShadowFrame& shadow_frame,
+                                         const Instruction* inst,
+                                         uint16_t inst_data,
+                                         JValue* result) REQUIRES_SHARED(Locks::mutator_lock_) {
+  return UnimplementedSignaturePolymorphicMethod(self, shadow_frame, inst, inst_data, result);
+}
+
 template<bool is_range>
 bool DoInvokePolymorphic(Thread* self,
                          ShadowFrame& shadow_frame,
