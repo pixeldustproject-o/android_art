@@ -44,7 +44,8 @@ namespace art {
 
 using android::base::StringPrintf;
 
-static constexpr uint64_t kLongWaitMs = 100;
+static constexpr uint64_t kDebugThresholdFudgeFactor = kIsDebugBuild ? 10 : 1;
+static constexpr uint64_t kLongWaitMs = 100 * kDebugThresholdFudgeFactor;
 
 /*
  * Every Object has a monitor associated with it, but not every Object is actually locked.  Even
@@ -78,8 +79,12 @@ uint32_t Monitor::stack_dump_lock_profiling_threshold_ = 0;
 
 void Monitor::Init(uint32_t lock_profiling_threshold,
                    uint32_t stack_dump_lock_profiling_threshold) {
-  lock_profiling_threshold_ = lock_profiling_threshold;
-  stack_dump_lock_profiling_threshold_ = stack_dump_lock_profiling_threshold;
+  // It isn't great to always include the debug build fudge factor for command-
+  // line driven arguments, but it's easier to adjust here than in the build.
+  lock_profiling_threshold_ =
+      lock_profiling_threshold * kDebugThresholdFudgeFactor;
+  stack_dump_lock_profiling_threshold_ =
+      stack_dump_lock_profiling_threshold * kDebugThresholdFudgeFactor;
 }
 
 Monitor::Monitor(Thread* self, Thread* owner, mirror::Object* obj, int32_t hash_code)
@@ -172,6 +177,42 @@ bool Monitor::Install(Thread* self) {
     // Do not abort on dex pc errors. This can easily happen when we want to dump a stack trace on
     // abort.
     locking_method_ = owner_->GetCurrentMethod(&locking_dex_pc_, false);
+    if (locking_method_ != nullptr && UNLIKELY(locking_method_->IsProxyMethod())) {
+      // Grab another frame. Proxy methods are not helpful for lock profiling. This should be rare
+      // enough that it's OK to walk the stack twice.
+      struct NextMethodVisitor FINAL : public StackVisitor {
+        explicit NextMethodVisitor(Thread* thread) REQUIRES_SHARED(Locks::mutator_lock_)
+            : StackVisitor(thread,
+                           nullptr,
+                           StackVisitor::StackWalkKind::kIncludeInlinedFrames,
+                           false),
+              count_(0),
+              method_(nullptr),
+              dex_pc_(0) {}
+        bool VisitFrame() OVERRIDE REQUIRES_SHARED(Locks::mutator_lock_) {
+          ArtMethod* m = GetMethod();
+          if (m->IsRuntimeMethod()) {
+            // Continue if this is a runtime method.
+            return true;
+          }
+          count_++;
+          if (count_ == 2u) {
+            method_ = m;
+            dex_pc_ = GetDexPc(false);
+            return false;
+          }
+          return true;
+        }
+        size_t count_;
+        ArtMethod* method_;
+        uint32_t dex_pc_;
+      };
+      NextMethodVisitor nmv(owner_);
+      nmv.WalkStack();
+      locking_method_ = nmv.method_;
+      locking_dex_pc_ = nmv.dex_pc_;
+    }
+    DCHECK(locking_method_ == nullptr || !locking_method_->IsProxyMethod());
   }
   return success;
 }
@@ -332,6 +373,8 @@ bool Monitor::TryLockLocked(Thread* self) {
     // acquisition failures to use in sampled logging.
     if (lock_profiling_threshold_ != 0) {
       locking_method_ = self->GetCurrentMethod(&locking_dex_pc_);
+      // We don't expect a proxy method here.
+      DCHECK(locking_method_ == nullptr || !locking_method_->IsProxyMethod());
     }
   } else if (owner_ == self) {  // Recursive.
     lock_count_++;
@@ -453,7 +496,7 @@ void Monitor::Lock(Thread* self) {
             // Acquire thread-list lock to find thread and keep it from dying until we've got all
             // the info we need.
             {
-              MutexLock mu2(Thread::Current(), *Locks::thread_list_lock_);
+              Locks::thread_list_lock_->ExclusiveLock(Thread::Current());
 
               // Re-find the owner in case the thread got killed.
               Thread* original_owner = Runtime::Current()->GetThreadList()->FindThreadByThreadId(
@@ -475,9 +518,15 @@ void Monitor::Lock(Thread* self) {
                     std::ostringstream oss;
                   };
                   CollectStackTrace owner_trace;
+                  // RequestSynchronousCheckpoint releases the thread_list_lock_ as a part of its
+                  // execution.
                   original_owner->RequestSynchronousCheckpoint(&owner_trace);
                   owner_stack_dump = owner_trace.oss.str();
+                } else {
+                  Locks::thread_list_lock_->ExclusiveUnlock(Thread::Current());
                 }
+              } else {
+                Locks::thread_list_lock_->ExclusiveUnlock(Thread::Current());
               }
               // This is all the data we need. Now drop the thread-list lock, it's OK for the
               // owner to go away now.
@@ -1352,26 +1401,38 @@ void Monitor::VisitLocks(StackVisitor* stack_visitor, void (*callback)(mirror::O
 
   // Ask the verifier for the dex pcs of all the monitor-enter instructions corresponding to
   // the locks held in this stack frame.
-  std::vector<uint32_t> monitor_enter_dex_pcs;
+  std::vector<verifier::MethodVerifier::DexLockInfo> monitor_enter_dex_pcs;
   verifier::MethodVerifier::FindLocksAtDexPc(m, dex_pc, &monitor_enter_dex_pcs);
-  for (uint32_t monitor_dex_pc : monitor_enter_dex_pcs) {
-    // The verifier works in terms of the dex pcs of the monitor-enter instructions.
-    // We want the registers used by those instructions (so we can read the values out of them).
-    const Instruction* monitor_enter_instruction =
-        Instruction::At(&code_item->insns_[monitor_dex_pc]);
+  for (verifier::MethodVerifier::DexLockInfo& dex_lock_info : monitor_enter_dex_pcs) {
+    // As a debug check, check that dex PC corresponds to a monitor-enter.
+    if (kIsDebugBuild) {
+      const Instruction* monitor_enter_instruction =
+          Instruction::At(&code_item->insns_[dex_lock_info.dex_pc]);
+      CHECK_EQ(monitor_enter_instruction->Opcode(), Instruction::MONITOR_ENTER)
+          << "expected monitor-enter @" << dex_lock_info.dex_pc << "; was "
+          << reinterpret_cast<const void*>(monitor_enter_instruction);
+    }
 
-    // Quick sanity check.
-    CHECK_EQ(monitor_enter_instruction->Opcode(), Instruction::MONITOR_ENTER)
-      << "expected monitor-enter @" << monitor_dex_pc << "; was "
-      << reinterpret_cast<const void*>(monitor_enter_instruction);
-
-    uint16_t monitor_register = monitor_enter_instruction->VRegA();
-    uint32_t value;
-    bool success = stack_visitor->GetVReg(m, monitor_register, kReferenceVReg, &value);
-    CHECK(success) << "Failed to read v" << monitor_register << " of kind "
-                   << kReferenceVReg << " in method " << m->PrettyMethod();
-    mirror::Object* o = reinterpret_cast<mirror::Object*>(value);
-    callback(o, callback_context);
+    // Iterate through the set of dex registers, as the compiler may not have held all of them
+    // live.
+    bool success = false;
+    for (uint32_t dex_reg : dex_lock_info.dex_registers) {
+      uint32_t value;
+      success = stack_visitor->GetVReg(m, dex_reg, kReferenceVReg, &value);
+      if (success) {
+        mirror::Object* o = reinterpret_cast<mirror::Object*>(value);
+        callback(o, callback_context);
+        break;
+      }
+    }
+    DCHECK(success) << "Failed to find/read reference for monitor-enter at dex pc "
+                    << dex_lock_info.dex_pc
+                    << " in method "
+                    << m->PrettyMethod();
+    if (!success) {
+      LOG(WARNING) << "Had a lock reported for dex pc " << dex_lock_info.dex_pc
+                   << " but was not able to fetch a corresponding object!";
+    }
   }
 }
 
