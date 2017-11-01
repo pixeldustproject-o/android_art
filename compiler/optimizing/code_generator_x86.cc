@@ -1071,7 +1071,8 @@ void CodeGeneratorX86::GenerateFrameEntry() {
   DCHECK(GetCompilerOptions().GetImplicitStackOverflowChecks());
 
   if (!skip_overflow_check) {
-    __ testl(EAX, Address(ESP, -static_cast<int32_t>(GetStackOverflowReservedBytes(kX86))));
+    size_t reserved_bytes = GetStackOverflowReservedBytes(InstructionSet::kX86);
+    __ testl(EAX, Address(ESP, -static_cast<int32_t>(reserved_bytes)));
     RecordPcInfo(nullptr, 0);
   }
 
