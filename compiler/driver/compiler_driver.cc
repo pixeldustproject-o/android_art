@@ -282,9 +282,6 @@ CompilerDriver::CompilerDriver(
     std::unordered_set<std::string>* compiled_classes,
     std::unordered_set<std::string>* compiled_methods,
     size_t thread_count,
-    bool dump_stats,
-    bool dump_passes,
-    CumulativeLogger* timer,
     int swap_fd,
     const ProfileCompilationInfo* profile_compilation_info)
     : compiler_options_(compiler_options),
@@ -303,9 +300,6 @@ CompilerDriver::CompilerDriver(
       had_hard_verifier_failure_(false),
       parallel_thread_count_(thread_count),
       stats_(new AOTCompilationStats),
-      dump_stats_(dump_stats),
-      dump_passes_(dump_passes),
-      timings_logger_(timer),
       compiler_context_(nullptr),
       support_boot_image_fixup_(true),
       compiled_method_storage_(swap_fd),
@@ -321,6 +315,8 @@ CompilerDriver::CompilerDriver(
   if (GetCompilerOptions().IsBootImage()) {
     CHECK(image_classes_.get() != nullptr) << "Expected image classes for boot image";
   }
+
+  compiled_method_storage_.SetDedupeEnabled(compiler_options_->DeduplicateCode());
 }
 
 CompilerDriver::~CompilerDriver() {
@@ -394,7 +390,7 @@ void CompilerDriver::CompileAll(jobject class_loader,
   if (GetCompilerOptions().IsAnyCompilationEnabled()) {
     Compile(class_loader, dex_files, timings);
   }
-  if (dump_stats_) {
+  if (GetCompilerOptions().GetDumpStats()) {
     stats_->Dump();
   }
 
@@ -2055,28 +2051,19 @@ class VerifyClassVisitor : public CompilationVisitor {
       ClassReference ref(manager_->GetDexFile(), class_def_index);
       manager_->GetCompiler()->RecordClassStatus(ref, klass->GetStatus());
 
-      // It is *very* problematic if there are verification errors in the boot classpath.
-      // For example, we rely on things working OK without verification when the decryption dialog
-      // is brought up. So abort in a debug build if we find this violated.
+      // It is *very* problematic if there are resolution errors in the boot classpath.
+      //
+      // It is also bad if classes fail verification. For example, we rely on things working
+      // OK without verification when the decryption dialog is brought up. It is thus highly
+      // recommended to compile the boot classpath with
+      //   --abort-on-hard-verifier-error --abort-on-soft-verifier-error
+      // which is the default build system configuration.
       if (kIsDebugBuild) {
         if (manager_->GetCompiler()->GetCompilerOptions().IsBootImage()) {
-          if (!klass->IsVerified()) {
-            // Re-run verification to get all failure messages if it soft-failed.
-            if (!klass->IsErroneous()) {
-              gLogVerbosity.verifier = true;
-              // Note: We can't call ClassLinker::VerifyClass, as it will elide the second
-              //       verification.
-              Runtime* runtime = Runtime::Current();
-              std::string v_error;
-              verifier::MethodVerifier::VerifyClass(soa.Self(),
-                                                    klass.Get(),
-                                                    runtime->GetCompilerCallbacks(),
-                                                    runtime->IsAotCompiler(),
-                                                    verifier::HardFailLogMode::kLogInternalFatal,
-                                                    &v_error);
-            }
+          if (!klass->IsResolved() || klass->IsErroneous()) {
             LOG(FATAL) << "Boot classpath class " << klass->PrettyClass()
-                       << " failed to fully verify: state= " << klass->GetStatus();
+                       << " failed to resolve/is erroneous: state= " << klass->GetStatus();
+            UNREACHABLE();
           }
         }
         if (klass->IsVerified()) {

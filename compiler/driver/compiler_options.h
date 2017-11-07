@@ -254,12 +254,24 @@ class CompilerOptions FINAL {
     return force_determinism_;
   }
 
+  bool DeduplicateCode() const {
+    return deduplicate_code_;
+  }
+
   RegisterAllocator::Strategy GetRegisterAllocationStrategy() const {
     return register_allocation_strategy_;
   }
 
   const std::vector<std::string>* GetPassesToRun() const {
     return passes_to_run_;
+  }
+
+  bool GetDumpTimings() const {
+    return dump_timings_;
+  }
+
+  bool GetDumpStats() const {
+    return dump_stats_;
   }
 
  private:
@@ -299,6 +311,8 @@ class CompilerOptions FINAL {
   bool implicit_so_checks_;
   bool implicit_suspend_checks_;
   bool compile_pic_;
+  bool dump_timings_;
+  bool dump_stats_;
 
   // Vector of methods to have verbose output enabled for.
   std::vector<std::string> verbose_methods_;
@@ -318,6 +332,9 @@ class CompilerOptions FINAL {
   // Whether the compiler should trade performance for determinism to guarantee exactly reproducible
   // outcomes.
   bool force_determinism_;
+
+  // Whether code should be deduplicated.
+  bool deduplicate_code_;
 
   RegisterAllocator::Strategy register_allocation_strategy_;
 
