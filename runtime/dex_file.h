@@ -1213,6 +1213,11 @@ class ClassDataItemIterator {
   bool HasNextVirtualMethod() const {
     return pos_ >= EndOfDirectMethodsPos() && pos_ < EndOfVirtualMethodsPos();
   }
+  bool HasNextMethod() const {
+    const bool result = pos_ >= EndOfInstanceFieldsPos() && pos_ < EndOfVirtualMethodsPos();
+    DCHECK_EQ(result, HasNextDirectMethod() || HasNextVirtualMethod());
+    return result;
+  }
   void SkipStaticFields() {
     while (HasNextStaticField()) {
       Next();

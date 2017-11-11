@@ -2143,20 +2143,14 @@ bool OatWriter::VisitDexMethods(DexMethodVisitor* visitor) {
           ClassDataItemIterator it(*dex_file, class_data);
           it.SkipAllFields();
           size_t class_def_method_index = 0u;
-          while (it.HasNextDirectMethod()) {
+          while (it.HasNextMethod()) {
             if (!visitor->VisitMethod(class_def_method_index, it)) {
               return false;
             }
             ++class_def_method_index;
             it.Next();
           }
-          while (it.HasNextVirtualMethod()) {
-            if (UNLIKELY(!visitor->VisitMethod(class_def_method_index, it))) {
-              return false;
-            }
-            ++class_def_method_index;
-            it.Next();
-          }
+          DCHECK(!it.HasNext());
         }
       }
       if (UNLIKELY(!visitor->EndClass())) {
