@@ -500,8 +500,11 @@ inline bool SchedulingGraph::IsSchedulingBarrier(const HInstruction* instruction
 
 class HInstructionScheduling : public HOptimization {
  public:
-  HInstructionScheduling(HGraph* graph, InstructionSet instruction_set, CodeGenerator* cg = nullptr)
-      : HOptimization(graph, kInstructionScheduling),
+  HInstructionScheduling(HGraph* graph,
+                         InstructionSet instruction_set,
+                         CodeGenerator* cg = nullptr,
+                         const char* name = kInstructionSchedulingPassName)
+      : HOptimization(graph, name),
         codegen_(cg),
         instruction_set_(instruction_set) {}
 
@@ -510,7 +513,7 @@ class HInstructionScheduling : public HOptimization {
   }
   void Run(bool only_optimize_loop_blocks, bool schedule_randomly);
 
-  static constexpr const char* kInstructionScheduling = "scheduler";
+  static constexpr const char* kInstructionSchedulingPassName = "scheduler";
 
  private:
   CodeGenerator* const codegen_;

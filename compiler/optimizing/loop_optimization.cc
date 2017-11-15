@@ -484,8 +484,9 @@ static void TryToEvaluateIfCondition(HIf* instruction, HGraph* graph) {
 HLoopOptimization::HLoopOptimization(HGraph* graph,
                                      CompilerDriver* compiler_driver,
                                      HInductionVarAnalysis* induction_analysis,
-                                     OptimizingCompilerStats* stats)
-    : HOptimization(graph, kLoopOptimizationPassName, stats),
+                                     OptimizingCompilerStats* stats,
+                                     const char* name)
+    : HOptimization(graph, name, stats),
       compiler_driver_(compiler_driver),
       induction_range_(induction_analysis),
       loop_allocator_(nullptr),
