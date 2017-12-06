@@ -64,8 +64,6 @@ namespace verifier {
 using android::base::StringPrintf;
 
 static constexpr bool kTimeVerifyMethod = !kIsDebugBuild;
-static constexpr bool kDebugVerify = false;
-// TODO: Add a constant to method_verifier to turn on verbose logging?
 
 // On VLOG(verifier), should we dump the whole state when we run into a hard failure?
 static constexpr bool kDumpRegLinesOnHardFailureIfVLOG = true;
@@ -289,7 +287,7 @@ FailureKind MethodVerifier::VerifyClass(Thread* self,
                                         bool allow_soft_failures,
                                         HardFailLogMode log_level,
                                         std::string* error) {
-  ScopedTrace trace(__FUNCTION__);
+  SCOPED_TRACE("VerifyClass %s", PrettyDescriptor(dex_file->GetClassDescriptor(class_def)).c_str());
 
   // A class must not be abstract and final.
   if ((class_def.access_flags_ & (kAccAbstract | kAccFinal)) == (kAccAbstract | kAccFinal)) {
@@ -413,6 +411,10 @@ MethodVerifier::FailureData MethodVerifier::VerifyMethod(Thread* self,
         verifier.DumpFailures(VLOG_STREAM(verifier) << "Soft verification failures in "
                                                     << dex_file->PrettyMethod(method_idx) << "\n");
       }
+      if (VLOG_IS_ON(verifier_debug)) {
+        std::cout << "\n" << verifier.info_messages_.str();
+        verifier.Dump(std::cout);
+      }
       result.kind = FailureKind::kSoftFailure;
       if (method != nullptr &&
           !CanCompilerHandleVerificationFailure(verifier.encountered_failure_types_)) {
@@ -486,7 +488,7 @@ MethodVerifier::FailureData MethodVerifier::VerifyMethod(Thread* self,
         callbacks->ClassRejected(ref);
       }
     }
-    if (VLOG_IS_ON(verifier)) {
+    if (VLOG_IS_ON(verifier) || VLOG_IS_ON(verifier_debug)) {
       std::cout << "\n" << verifier.info_messages_.str();
       verifier.Dump(std::cout);
     }
@@ -1944,7 +1946,7 @@ bool MethodVerifier::CodeFlowVerifyMethod() {
     GetInstructionFlags(insn_idx).ClearChanged();
   }
 
-  if (kDebugVerify) {
+  if (UNLIKELY(VLOG_IS_ON(verifier_debug))) {
     /*
      * Scan for dead code. There's nothing "evil" about dead code
      * (besides the wasted space), but it indicates a flaw somewhere
@@ -2096,7 +2098,7 @@ bool MethodVerifier::CodeFlowVerifyInstruction(uint32_t* start_guess) {
 
   int32_t branch_target = 0;
   bool just_set_result = false;
-  if (kDebugVerify) {
+  if (UNLIKELY(VLOG_IS_ON(verifier_debug))) {
     // Generate processing back trace to debug verifier
     LogVerifyInfo() << "Processing " << inst->DumpString(dex_file_) << "\n"
                     << work_line_->Dump(this) << "\n";
@@ -5046,10 +5048,11 @@ ArtField* MethodVerifier::GetQuickFieldAccess(const Instruction* inst, RegisterL
   }
   uint32_t field_offset = static_cast<uint32_t>(inst->VRegC_22c());
   ArtField* const f = ArtField::FindInstanceFieldWithOffset(object_type.GetClass(), field_offset);
-  DCHECK_EQ(f->GetOffset().Uint32Value(), field_offset);
   if (f == nullptr) {
     VLOG(verifier) << "Failed to find instance field at offset '" << field_offset
                    << "' from '" << mirror::Class::PrettyDescriptor(object_type.GetClass()) << "'";
+  } else {
+    DCHECK_EQ(f->GetOffset().Uint32Value(), field_offset);
   }
   return f;
 }
@@ -5233,7 +5236,7 @@ bool MethodVerifier::UpdateRegisters(uint32_t next_insn, RegisterLine* merge_lin
     }
   } else {
     RegisterLineArenaUniquePtr copy;
-    if (kDebugVerify) {
+    if (UNLIKELY(VLOG_IS_ON(verifier_debug))) {
       copy.reset(RegisterLine::Create(target_line->NumRegs(), this));
       copy->CopyFromLine(target_line);
     }
@@ -5241,7 +5244,7 @@ bool MethodVerifier::UpdateRegisters(uint32_t next_insn, RegisterLine* merge_lin
     if (have_pending_hard_failure_) {
       return false;
     }
-    if (kDebugVerify && changed) {
+    if (UNLIKELY(VLOG_IS_ON(verifier_debug)) && changed) {
       LogVerifyInfo() << "Merging at [" << reinterpret_cast<void*>(work_insn_idx_) << "]"
                       << " to [" << reinterpret_cast<void*>(next_insn) << "]: " << "\n"
                       << copy->Dump(this) << "  MERGE\n"
