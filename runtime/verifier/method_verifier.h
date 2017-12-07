@@ -257,7 +257,8 @@ class MethodVerifier {
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   void UninstantiableError(const char* descriptor);
-  static bool IsInstantiableOrPrimitive(mirror::Class* klass) REQUIRES_SHARED(Locks::mutator_lock_);
+  static bool IsInstantiableOrPrimitive(ObjPtr<mirror::Class> klass)
+      REQUIRES_SHARED(Locks::mutator_lock_);
 
   const RegType* ResolveReturnType(uint32_t method_idx)
       REQUIRES_SHARED(Locks::mutator_lock_);
