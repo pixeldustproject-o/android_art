@@ -701,7 +701,6 @@ void CompilerDriver::Resolve(jobject class_loader,
 //       stable order.
 
 static void ResolveConstStrings(Handle<mirror::DexCache> dex_cache,
-                                const DexFile& dex_file,
                                 const DexFile::CodeItem* code_item)
       REQUIRES_SHARED(Locks::mutator_lock_) {
   if (code_item == nullptr) {
@@ -717,8 +716,7 @@ static void ResolveConstStrings(Handle<mirror::DexCache> dex_cache,
         dex::StringIndex string_index((inst->Opcode() == Instruction::CONST_STRING)
             ? inst->VRegB_21c()
             : inst->VRegB_31c());
-        ObjPtr<mirror::String> string =
-            class_linker->ResolveString(dex_file, string_index, dex_cache);
+        ObjPtr<mirror::String> string = class_linker->ResolveString(string_index, dex_cache);
         CHECK(string != nullptr) << "Could not allocate a string when forcing determinism";
         break;
       }
@@ -773,7 +771,7 @@ static void ResolveConstStrings(CompilerDriver* driver,
           continue;
         }
         previous_method_idx = method_idx;
-        ResolveConstStrings(dex_cache, *dex_file, it.GetMethodCodeItem());
+        ResolveConstStrings(dex_cache, it.GetMethodCodeItem());
         it.Next();
       }
       DCHECK(!it.HasNext());
@@ -1049,22 +1047,21 @@ void CompilerDriver::LoadImageClasses(TimingLogger* timings) {
     for (const auto& exception_type : unresolved_exception_types) {
       dex::TypeIndex exception_type_idx = exception_type.first;
       const DexFile* dex_file = exception_type.second;
-      StackHandleScope<2> hs2(self);
+      StackHandleScope<1> hs2(self);
       Handle<mirror::DexCache> dex_cache(hs2.NewHandle(class_linker->RegisterDexFile(*dex_file,
                                                                                      nullptr)));
-      Handle<mirror::Class> klass(hs2.NewHandle(
+      ObjPtr<mirror::Class> klass =
           (dex_cache != nullptr)
-              ? class_linker->ResolveType(*dex_file,
-                                          exception_type_idx,
+              ? class_linker->ResolveType(exception_type_idx,
                                           dex_cache,
                                           ScopedNullHandle<mirror::ClassLoader>())
-              : nullptr));
+              : nullptr;
       if (klass == nullptr) {
         const DexFile::TypeId& type_id = dex_file->GetTypeId(exception_type_idx);
         const char* descriptor = dex_file->GetTypeDescriptor(type_id);
         LOG(FATAL) << "Failed to resolve class " << descriptor;
       }
-      DCHECK(java_lang_Throwable->IsAssignableFrom(klass.Get()));
+      DCHECK(java_lang_Throwable->IsAssignableFrom(klass));
     }
     // Resolving exceptions may load classes that reference more exceptions, iterate until no
     // more are found
@@ -1368,17 +1365,18 @@ void CompilerDriver::ProcessedStaticField(bool resolved, bool local) {
 }
 
 ArtField* CompilerDriver::ComputeInstanceFieldInfo(uint32_t field_idx,
-                                                   const DexCompilationUnit* mUnit, bool is_put,
+                                                   const DexCompilationUnit* mUnit,
+                                                   bool is_put,
                                                    const ScopedObjectAccess& soa) {
   // Try to resolve the field and compiling method's class.
   ArtField* resolved_field;
   ObjPtr<mirror::Class> referrer_class;
   Handle<mirror::DexCache> dex_cache(mUnit->GetDexCache());
   {
-    Handle<mirror::ClassLoader> class_loader_handle = mUnit->GetClassLoader();
-    resolved_field = ResolveField(soa, dex_cache, class_loader_handle, mUnit, field_idx, false);
+    Handle<mirror::ClassLoader> class_loader = mUnit->GetClassLoader();
+    resolved_field = ResolveField(soa, dex_cache, class_loader, field_idx, /* is_static */ false);
     referrer_class = resolved_field != nullptr
-        ? ResolveCompilingMethodsClass(soa, dex_cache, class_loader_handle, mUnit) : nullptr;
+        ? ResolveCompilingMethodsClass(soa, dex_cache, class_loader, mUnit) : nullptr;
   }
   bool can_link = false;
   if (resolved_field != nullptr && referrer_class != nullptr) {
@@ -1638,7 +1636,7 @@ class ResolveClassFieldsAndMethodsVisitor : public CompilationVisitor {
         soa.Self(), dex_file)));
     // Resolve the class.
     ObjPtr<mirror::Class> klass =
-        class_linker->ResolveType(dex_file, class_def.class_idx_, dex_cache, class_loader);
+        class_linker->ResolveType(class_def.class_idx_, dex_cache, class_loader);
     bool resolve_fields_and_methods;
     if (klass == nullptr) {
       // Class couldn't be resolved, for example, super-class is in a different dex file. Don't
@@ -1664,8 +1662,8 @@ class ResolveClassFieldsAndMethodsVisitor : public CompilationVisitor {
       ClassDataItemIterator it(dex_file, class_data);
       while (it.HasNextStaticField()) {
         if (resolve_fields_and_methods) {
-          ArtField* field = class_linker->ResolveField(dex_file, it.GetMemberIndex(),
-                                                               dex_cache, class_loader, true);
+          ArtField* field = class_linker->ResolveField(
+              it.GetMemberIndex(), dex_cache, class_loader, /* is_static */ true);
           if (field == nullptr) {
             CheckAndClearResolveException(soa.Self());
           }
@@ -1679,8 +1677,8 @@ class ResolveClassFieldsAndMethodsVisitor : public CompilationVisitor {
           requires_constructor_barrier = true;
         }
         if (resolve_fields_and_methods) {
-          ArtField* field = class_linker->ResolveField(dex_file, it.GetMemberIndex(),
-                                                               dex_cache, class_loader, false);
+          ArtField* field = class_linker->ResolveField(
+              it.GetMemberIndex(), dex_cache, class_loader, /* is_static */ false);
           if (field == nullptr) {
             CheckAndClearResolveException(soa.Self());
           }
@@ -1690,7 +1688,10 @@ class ResolveClassFieldsAndMethodsVisitor : public CompilationVisitor {
       if (resolve_fields_and_methods) {
         while (it.HasNextMethod()) {
           ArtMethod* method = class_linker->ResolveMethod<ClassLinker::ResolveMode::kNoChecks>(
-              dex_file, it.GetMemberIndex(), dex_cache, class_loader, nullptr,
+              it.GetMemberIndex(),
+              dex_cache,
+              class_loader,
+              /* referrer */ nullptr,
               it.GetMethodInvokeType(class_def));
           if (method == nullptr) {
             CheckAndClearResolveException(soa.Self());
@@ -1726,7 +1727,7 @@ class ResolveTypeVisitor : public CompilationVisitor {
         dex_file,
         class_loader.Get())));
     ObjPtr<mirror::Class> klass = (dex_cache != nullptr)
-        ? class_linker->ResolveType(dex_file, dex::TypeIndex(type_idx), dex_cache, class_loader)
+        ? class_linker->ResolveType(dex::TypeIndex(type_idx), dex_cache, class_loader)
         : nullptr;
 
     if (klass == nullptr) {
@@ -2329,22 +2330,20 @@ class InitializeClassVisitor : public CompilationVisitor {
     DCHECK(!klass->IsInitialized());
 
     StackHandleScope<1> hs(Thread::Current());
-    Handle<mirror::DexCache> h_dex_cache = hs.NewHandle(klass->GetDexCache());
-    const DexFile* dex_file = manager_->GetDexFile();
+    Handle<mirror::DexCache> dex_cache = hs.NewHandle(klass->GetDexCache());
     const DexFile::ClassDef* class_def = klass->GetClassDef();
     ClassLinker* class_linker = manager_->GetClassLinker();
 
     // Check encoded final field values for strings and intern.
-    annotations::RuntimeEncodedStaticFieldValueIterator value_it(*dex_file,
-                                                                 &h_dex_cache,
-                                                                 &class_loader,
+    annotations::RuntimeEncodedStaticFieldValueIterator value_it(dex_cache,
+                                                                 class_loader,
                                                                  manager_->GetClassLinker(),
                                                                  *class_def);
     for ( ; value_it.HasNext(); value_it.Next()) {
       if (value_it.GetValueType() == annotations::RuntimeEncodedStaticFieldValueIterator::kString) {
         // Resolve the string. This will intern the string.
         art::ObjPtr<mirror::String> resolved = class_linker->ResolveString(
-            *dex_file, dex::StringIndex(value_it.GetJavaValue().i), h_dex_cache);
+            dex::StringIndex(value_it.GetJavaValue().i), dex_cache);
         CHECK(resolved != nullptr);
       }
     }
@@ -2357,11 +2356,11 @@ class InitializeClassVisitor : public CompilationVisitor {
       for (const DexInstructionPcPair& inst : code_item->Instructions()) {
         if (inst->Opcode() == Instruction::CONST_STRING) {
           ObjPtr<mirror::String> s = class_linker->ResolveString(
-              *dex_file, dex::StringIndex(inst->VRegB_21c()), h_dex_cache);
+              dex::StringIndex(inst->VRegB_21c()), dex_cache);
           CHECK(s != nullptr);
         } else if (inst->Opcode() == Instruction::CONST_STRING_JUMBO) {
           ObjPtr<mirror::String> s = class_linker->ResolveString(
-              *dex_file, dex::StringIndex(inst->VRegB_31c()), h_dex_cache);
+              dex::StringIndex(inst->VRegB_31c()), dex_cache);
           CHECK(s != nullptr);
         }
       }

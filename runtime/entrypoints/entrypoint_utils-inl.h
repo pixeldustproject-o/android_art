@@ -349,8 +349,7 @@ inline ArtField* FindFieldFromCode(uint32_t field_idx,
     Handle<mirror::DexCache> h_dex_cache(hs.NewHandle(method->GetDexCache()));
     Handle<mirror::ClassLoader> h_class_loader(hs.NewHandle(method->GetClassLoader()));
 
-    resolved_field = class_linker->ResolveFieldJLS(*method->GetDexFile(),
-                                                   field_idx,
+    resolved_field = class_linker->ResolveFieldJLS(field_idx,
                                                    h_dex_cache,
                                                    h_class_loader);
   } else {
@@ -683,7 +682,7 @@ inline ArtMethod* FindMethodFast(uint32_t method_idx,
   } else if (type == kSuper) {
     // TODO This lookup is rather slow.
     dex::TypeIndex method_type_idx = dex_cache->GetDexFile()->GetMethodId(method_idx).class_idx_;
-    ObjPtr<mirror::Class> method_reference_class = ClassLinker::LookupResolvedType(
+    ObjPtr<mirror::Class> method_reference_class = linker->LookupResolvedType(
         method_type_idx, dex_cache, referrer->GetClassLoader());
     if (method_reference_class == nullptr) {
       // Need to do full type resolution...
@@ -758,8 +757,7 @@ static inline ObjPtr<mirror::String> ResolveString(ClassLinker* class_linker,
   if (UNLIKELY(string == nullptr)) {
     StackHandleScope<1> hs(Thread::Current());
     Handle<mirror::DexCache> dex_cache(hs.NewHandle(referrer->GetDexCache()));
-    const DexFile& dex_file = *dex_cache->GetDexFile();
-    string = class_linker->ResolveString(dex_file, string_idx, dex_cache);
+    string = class_linker->ResolveString(string_idx, dex_cache);
   }
   return string;
 }
@@ -771,9 +769,8 @@ inline ObjPtr<mirror::String> ResolveStringFromCode(ArtMethod* referrer,
   if (UNLIKELY(string == nullptr)) {
     StackHandleScope<1> hs(Thread::Current());
     Handle<mirror::DexCache> dex_cache(hs.NewHandle(referrer->GetDexCache()));
-    const DexFile& dex_file = *dex_cache->GetDexFile();
     ClassLinker* class_linker = Runtime::Current()->GetClassLinker();
-    string = class_linker->ResolveString(dex_file, string_idx, dex_cache);
+    string = class_linker->ResolveString(string_idx, dex_cache);
   }
   return string;
 }

@@ -219,37 +219,33 @@ class CompilerDriver {
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Resolve compiling method's class. Returns null on failure.
-  ObjPtr<mirror::Class> ResolveCompilingMethodsClass(
-      const ScopedObjectAccess& soa, Handle<mirror::DexCache> dex_cache,
-      Handle<mirror::ClassLoader> class_loader, const DexCompilationUnit* mUnit)
+  ObjPtr<mirror::Class> ResolveCompilingMethodsClass(const ScopedObjectAccess& soa,
+                                                     Handle<mirror::DexCache> dex_cache,
+                                                     Handle<mirror::ClassLoader> class_loader,
+                                                     const DexCompilationUnit* mUnit)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
-  ObjPtr<mirror::Class> ResolveClass(
-      const ScopedObjectAccess& soa, Handle<mirror::DexCache> dex_cache,
-      Handle<mirror::ClassLoader> class_loader, dex::TypeIndex type_index,
-      const DexCompilationUnit* mUnit)
+  ObjPtr<mirror::Class> ResolveClass(const ScopedObjectAccess& soa,
+                                     Handle<mirror::DexCache> dex_cache,
+                                     Handle<mirror::ClassLoader> class_loader,
+                                     dex::TypeIndex type_index,
+                                     const DexCompilationUnit* mUnit)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Resolve a field. Returns null on failure, including incompatible class change.
   // NOTE: Unlike ClassLinker's ResolveField(), this method enforces is_static.
-  ArtField* ResolveField(
-      const ScopedObjectAccess& soa, Handle<mirror::DexCache> dex_cache,
-      Handle<mirror::ClassLoader> class_loader, const DexCompilationUnit* mUnit,
-      uint32_t field_idx, bool is_static)
-      REQUIRES_SHARED(Locks::mutator_lock_);
-
-  // Resolve a field with a given dex file.
-  ArtField* ResolveFieldWithDexFile(
-      const ScopedObjectAccess& soa, Handle<mirror::DexCache> dex_cache,
-      Handle<mirror::ClassLoader> class_loader, const DexFile* dex_file,
-      uint32_t field_idx, bool is_static)
+  ArtField* ResolveField(const ScopedObjectAccess& soa,
+                         Handle<mirror::DexCache> dex_cache,
+                         Handle<mirror::ClassLoader> class_loader,
+                         uint32_t field_idx,
+                         bool is_static)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Can we fast-path an IGET/IPUT access to an instance field? If yes, compute the field offset.
-  std::pair<bool, bool> IsFastInstanceField(
-      ObjPtr<mirror::DexCache> dex_cache,
-      ObjPtr<mirror::Class> referrer_class,
-      ArtField* resolved_field, uint16_t field_idx)
+  std::pair<bool, bool> IsFastInstanceField(ObjPtr<mirror::DexCache> dex_cache,
+                                            ObjPtr<mirror::Class> referrer_class,
+                                            ArtField* resolved_field,
+                                            uint16_t field_idx)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Resolve a method. Returns null on failure, including incompatible class change.
@@ -271,9 +267,9 @@ class CompilerDriver {
       REQUIRES(!Locks::mutator_lock_);
 
   ArtField* ComputeInstanceFieldInfo(uint32_t field_idx,
-                                             const DexCompilationUnit* mUnit,
-                                             bool is_put,
-                                             const ScopedObjectAccess& soa)
+                                     const DexCompilationUnit* mUnit,
+                                     bool is_put,
+                                     const ScopedObjectAccess& soa)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
 

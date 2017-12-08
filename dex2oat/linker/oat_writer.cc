@@ -1531,11 +1531,10 @@ class OatWriter::InitImageMethodVisitor : public OatDexMethodVisitor {
       ScopedObjectAccessUnchecked soa(self);
       StackHandleScope<1> hs(self);
       method = class_linker_->ResolveMethod<ClassLinker::ResolveMode::kNoChecks>(
-          *dex_file_,
           it.GetMemberIndex(),
           hs.NewHandle(dex_cache),
           ScopedNullHandle<mirror::ClassLoader>(),
-          nullptr,
+          /* referrer */ nullptr,
           invoke_type);
       if (method == nullptr) {
         LOG(FATAL_WITHOUT_ABORT) << "Unexpected failure to resolve a method: "
@@ -1896,7 +1895,7 @@ class OatWriter::WriteCodeMethodVisitor : public OrderedMethodVisitor {
     DCHECK(writer_->HasImage());
     ObjPtr<mirror::DexCache> dex_cache = GetDexCache(patch.TargetTypeDexFile());
     ObjPtr<mirror::Class> type =
-        ClassLinker::LookupResolvedType(patch.TargetTypeIndex(), dex_cache, class_loader_);
+        class_linker_->LookupResolvedType(patch.TargetTypeIndex(), dex_cache, class_loader_);
     CHECK(type != nullptr);
     return type;
   }
@@ -1904,9 +1903,8 @@ class OatWriter::WriteCodeMethodVisitor : public OrderedMethodVisitor {
   ObjPtr<mirror::String> GetTargetString(const LinkerPatch& patch)
       REQUIRES_SHARED(Locks::mutator_lock_) {
     ClassLinker* linker = Runtime::Current()->GetClassLinker();
-    ObjPtr<mirror::String> string = linker->LookupString(*patch.TargetStringDexFile(),
-                                                         patch.TargetStringIndex(),
-                                                         GetDexCache(patch.TargetStringDexFile()));
+    ObjPtr<mirror::String> string =
+        linker->LookupString(patch.TargetStringIndex(), GetDexCache(patch.TargetStringDexFile()));
     DCHECK(string != nullptr);
     DCHECK(writer_->HasBootImage() ||
            Runtime::Current()->GetHeap()->ObjectIsInBootImageSpace(string));
