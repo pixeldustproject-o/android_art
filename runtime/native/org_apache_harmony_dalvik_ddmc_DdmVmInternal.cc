@@ -30,6 +30,10 @@
 
 namespace art {
 
+static Thread* GetSelf(JNIEnv* env) {
+  return static_cast<JNIEnvExt*>(env)->GetSelf();
+}
+
 static void DdmVmInternal_enableRecentAllocations(JNIEnv*, jclass, jboolean enable) {
   Dbg::SetAllocTrackingEnabled(enable);
 }
@@ -49,7 +53,7 @@ static jboolean DdmVmInternal_getRecentAllocationStatus(JNIEnv*, jclass) {
  */
 static jobjectArray DdmVmInternal_getStackTraceById(JNIEnv* env, jclass, jint thin_lock_id) {
   jobjectArray trace = nullptr;
-  Thread* const self = Thread::Current();
+  Thread* const self = GetSelf(env);
   if (static_cast<uint32_t>(thin_lock_id) == self->GetThreadId()) {
     // No need to suspend ourself to build stacktrace.
     ScopedObjectAccess soa(env);
@@ -134,7 +138,7 @@ static void ThreadStatsGetterCallback(Thread* t, void* context) {
 
 static jbyteArray DdmVmInternal_getThreadStats(JNIEnv* env, jclass) {
   std::vector<uint8_t> bytes;
-  Thread* self = static_cast<JNIEnvExt*>(env)->self;
+  Thread* self = GetSelf(env);
   {
     MutexLock mu(self, *Locks::thread_list_lock_);
     ThreadList* thread_list = Runtime::Current()->GetThreadList();
