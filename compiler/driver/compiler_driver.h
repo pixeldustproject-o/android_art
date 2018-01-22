@@ -378,10 +378,6 @@ class CompilerDriver {
     return (dash_pos >= 4u) && (boot_image_filename.compare(dash_pos - 4u, 4u, "core") == 0);
   }
 
-  bool GetCompilingDexToDex() const {
-    return compiling_dex_to_dex_;
-  }
-
   optimizer::DexToDexCompiler& GetDexToDexCompiler() {
     return dex_to_dex_compiler_;
   }
@@ -453,13 +449,6 @@ class CompilerDriver {
   void Compile(jobject class_loader,
                const std::vector<const DexFile*>& dex_files,
                TimingLogger* timings);
-  void CompileDexFile(jobject class_loader,
-                      const DexFile& dex_file,
-                      const std::vector<const DexFile*>& dex_files,
-                      ThreadPool* thread_pool,
-                      size_t thread_count,
-                      TimingLogger* timings)
-      REQUIRES(!Locks::mutator_lock_);
 
   bool MayInlineInternal(const DexFile* inlined_from, const DexFile* inlined_into) const;
 
@@ -541,7 +530,6 @@ class CompilerDriver {
   size_t max_arena_alloc_;
 
   // Compiler for dex to dex (quickening).
-  bool compiling_dex_to_dex_;
   optimizer::DexToDexCompiler dex_to_dex_compiler_;
 
   friend class CompileClassVisitor;
