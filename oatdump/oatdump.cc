@@ -42,6 +42,7 @@
 #include "class_linker-inl.h"
 #include "class_linker.h"
 #include "compiled_method.h"
+#include "debug/debug_info.h"
 #include "debug/elf_debug_writer.h"
 #include "debug/method_debug_info.h"
 #include "dex/code_item_accessors-inl.h"
@@ -183,7 +184,7 @@ class OatSymbolizer FINAL {
     #define DO_TRAMPOLINE(fn_name)                                                \
       if (oat_header.Get ## fn_name ## Offset() != 0) {                           \
         debug::MethodDebugInfo info = {};                                         \
-        info.trampoline_name = #fn_name;                                          \
+        info.custom_name = #fn_name;                                              \
         info.isa = oat_header.GetInstructionSet();                                \
         info.is_code_address_text_relative = true;                                \
         size_t code_offset = oat_header.Get ## fn_name ## Offset();               \
@@ -206,8 +207,13 @@ class OatSymbolizer FINAL {
     // TODO: Try to symbolize link-time thunks?
     // This would require disassembling all methods to find branches outside the method code.
 
+    // TODO: Add symbols for dex bytecode in the .dex section.
+
+    debug::DebugInfo debug_info{};
+    debug_info.compiled_methods = ArrayRef<const debug::MethodDebugInfo>(method_debug_infos_);
+
     debug::WriteDebugInfo(builder_.get(),
-                          ArrayRef<const debug::MethodDebugInfo>(method_debug_infos_),
+                          debug_info,
                           dwarf::DW_DEBUG_FRAME_FORMAT,
                           true /* write_oat_patches */);
 
@@ -306,7 +312,7 @@ class OatSymbolizer FINAL {
     const void* code_address = EntryPointToCodePointer(reinterpret_cast<void*>(entry_point));
 
     debug::MethodDebugInfo info = {};
-    DCHECK(info.trampoline_name.empty());
+    DCHECK(info.custom_name.empty());
     info.dex_file = &dex_file;
     info.class_def_index = class_def_index;
     info.dex_method_index = dex_method_index;
@@ -1053,14 +1059,19 @@ class OatDumper {
     os << StringPrintf("checksum: 0x%08x\n", oat_dex_file.GetDexFileLocationChecksum());
 
     const uint8_t* const oat_file_begin = oat_dex_file.GetOatFile()->Begin();
-    const uint8_t* const vdex_file_begin = oat_dex_file.GetOatFile()->DexBegin();
+    if (oat_dex_file.GetOatFile()->ContainsDexCode()) {
+      const uint8_t* const vdex_file_begin = oat_dex_file.GetOatFile()->DexBegin();
 
-    // Print data range of the dex file embedded inside the corresponding vdex file.
-    const uint8_t* const dex_file_pointer = oat_dex_file.GetDexFilePointer();
-    uint32_t dex_offset = dchecked_integral_cast<uint32_t>(dex_file_pointer - vdex_file_begin);
-    os << StringPrintf("dex-file: 0x%08x..0x%08x\n",
-                       dex_offset,
-                       dchecked_integral_cast<uint32_t>(dex_offset + oat_dex_file.FileSize() - 1));
+      // Print data range of the dex file embedded inside the corresponding vdex file.
+      const uint8_t* const dex_file_pointer = oat_dex_file.GetDexFilePointer();
+      uint32_t dex_offset = dchecked_integral_cast<uint32_t>(dex_file_pointer - vdex_file_begin);
+      os << StringPrintf(
+          "dex-file: 0x%08x..0x%08x\n",
+          dex_offset,
+          dchecked_integral_cast<uint32_t>(dex_offset + oat_dex_file.FileSize() - 1));
+    } else {
+      os << StringPrintf("dex-file not in VDEX file\n");
+    }
 
     // Create the dex file early. A lot of print-out things depend on it.
     std::string error_msg;
@@ -1149,6 +1160,7 @@ class OatDumper {
       // Vdex unquicken output should match original input bytecode
       uint32_t orig_checksum =
           reinterpret_cast<DexFile::Header*>(const_cast<uint8_t*>(dex_file->Begin()))->checksum_;
+      CHECK_EQ(orig_checksum, dex_file->CalculateChecksum());
       if (orig_checksum != dex_file->CalculateChecksum()) {
         os << "Unexpected checksum from unquicken dex file '" << dex_file_location << "'\n";
         return false;
@@ -1201,7 +1213,11 @@ class OatDumper {
       return false;
     }
 
-    if (!file->WriteFully(dex_file->Begin(), fsize)) {
+    bool success = false;
+      success = file->WriteFully(dex_file->Begin(), fsize);
+    // }
+
+    if (!success) {
       os << "Failed to write dex file";
       file->Erase();
       return false;
@@ -3041,8 +3057,15 @@ static int DumpOatWithoutRuntime(OatFile* oat_file, OatDumperOptions* options, s
   return (success) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int DumpOat(Runtime* runtime, const char* oat_filename, OatDumperOptions* options,
+static int DumpOat(Runtime* runtime,
+                   const char* oat_filename,
+                   const char* dex_filename,
+                   OatDumperOptions* options,
                    std::ostream* os) {
+  if (dex_filename == nullptr) {
+    LOG(WARNING) << "No dex filename provided, "
+                 << "oatdump might fail if the oat file does not contain the dex code.";
+  }
   std::string error_msg;
   std::unique_ptr<OatFile> oat_file(OatFile::Open(oat_filename,
                                                   oat_filename,
@@ -3050,7 +3073,7 @@ static int DumpOat(Runtime* runtime, const char* oat_filename, OatDumperOptions*
                                                   nullptr,
                                                   false,
                                                   /*low_4gb*/false,
-                                                  nullptr,
+                                                  dex_filename,
                                                   &error_msg));
   if (oat_file == nullptr) {
     LOG(ERROR) << "Failed to open oat file from '" << oat_filename << "': " << error_msg;
@@ -3064,7 +3087,10 @@ static int DumpOat(Runtime* runtime, const char* oat_filename, OatDumperOptions*
   }
 }
 
-static int SymbolizeOat(const char* oat_filename, std::string& output_name, bool no_bits) {
+static int SymbolizeOat(const char* oat_filename,
+                        const char* dex_filename,
+                        std::string& output_name,
+                        bool no_bits) {
   std::string error_msg;
   std::unique_ptr<OatFile> oat_file(OatFile::Open(oat_filename,
                                                   oat_filename,
@@ -3072,7 +3098,7 @@ static int SymbolizeOat(const char* oat_filename, std::string& output_name, bool
                                                   nullptr,
                                                   false,
                                                   /*low_4gb*/false,
-                                                  nullptr,
+                                                  dex_filename,
                                                   &error_msg));
   if (oat_file == nullptr) {
     LOG(ERROR) << "Failed to open oat file from '" << oat_filename << "': " << error_msg;
@@ -3102,7 +3128,8 @@ class IMTDumper {
   static bool Dump(Runtime* runtime,
                    const std::string& imt_file,
                    bool dump_imt_stats,
-                   const char* oat_filename) {
+                   const char* oat_filename,
+                   const char* dex_filename) {
     Thread* self = Thread::Current();
 
     ScopedObjectAccess soa(self);
@@ -3118,7 +3145,7 @@ class IMTDumper {
                                                       nullptr,
                                                       false,
                                                       /*low_4gb*/false,
-                                                      nullptr,
+                                                      dex_filename,
                                                       &error_msg));
       if (oat_file == nullptr) {
         LOG(ERROR) << "Failed to open oat file from '" << oat_filename << "': " << error_msg;
@@ -3553,6 +3580,8 @@ struct OatdumpArgs : public CmdlineArgs {
 
     if (option.starts_with("--oat-file=")) {
       oat_filename_ = option.substr(strlen("--oat-file=")).data();
+    } else if (option.starts_with("--dex-file=")) {
+      dex_filename_ = option.substr(strlen("--dex-file=")).data();
     } else if (option.starts_with("--image=")) {
       image_location_ = option.substr(strlen("--image=")).data();
     } else if (option == "--no-dump:vmap") {
@@ -3704,6 +3733,7 @@ struct OatdumpArgs : public CmdlineArgs {
 
  public:
   const char* oat_filename_ = nullptr;
+  const char* dex_filename_ = nullptr;
   const char* class_filter_ = "";
   const char* method_filter_ = "";
   const char* image_location_ = nullptr;
@@ -3764,10 +3794,12 @@ struct OatdumpMain : public CmdlineMain<OatdumpArgs> {
       // This is what "strip --only-keep-debug" does when it creates separate ELF file
       // with only debug data. We use it in similar way to exclude .rodata and .text.
       bool no_bits = args_->only_keep_debug_;
-      return SymbolizeOat(args_->oat_filename_, args_->output_name_, no_bits) == EXIT_SUCCESS;
+      return SymbolizeOat(args_->oat_filename_, args_->dex_filename_, args_->output_name_, no_bits)
+          == EXIT_SUCCESS;
     } else {
       return DumpOat(nullptr,
                      args_->oat_filename_,
+                     args_->dex_filename_,
                      oat_dumper_options_.get(),
                      args_->os_) == EXIT_SUCCESS;
     }
@@ -3780,12 +3812,14 @@ struct OatdumpMain : public CmdlineMain<OatdumpArgs> {
       return IMTDumper::Dump(runtime,
                              args_->imt_dump_,
                              args_->imt_stat_dump_,
-                             args_->oat_filename_);
+                             args_->oat_filename_,
+                             args_->dex_filename_);
     }
 
     if (args_->oat_filename_ != nullptr) {
       return DumpOat(runtime,
                      args_->oat_filename_,
+                     args_->dex_filename_,
                      oat_dumper_options_.get(),
                      args_->os_) == EXIT_SUCCESS;
     }

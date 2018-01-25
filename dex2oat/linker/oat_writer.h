@@ -27,6 +27,7 @@
 #include "base/os.h"
 #include "base/mem_map.h"
 #include "base/safe_map.h"
+#include "debug/debug_info.h"
 #include "dex/compact_dex_level.h"
 #include "dex/method_reference.h"
 #include "dex/string_reference.h"
@@ -40,6 +41,7 @@ namespace art {
 class BitVector;
 class CompiledMethod;
 class CompilerDriver;
+class DexContainer;
 class ProfileCompilationInfo;
 class TimingLogger;
 class TypeLookupTable;
@@ -174,7 +176,7 @@ class OatWriter {
                             SafeMap<std::string, std::string>* key_value_store,
                             bool verify,
                             bool update_input_vdex,
-                            /*out*/ std::unique_ptr<MemMap>* opened_dex_files_map,
+                            /*out*/ std::vector<std::unique_ptr<MemMap>>* opened_dex_files_map,
                             /*out*/ std::vector<std::unique_ptr<const DexFile>>* opened_dex_files);
   bool WriteQuickeningInfo(OutputStream* vdex_out);
   bool WriteVerifierDeps(OutputStream* vdex_out, verifier::VerifierDeps* verifier_deps);
@@ -253,9 +255,7 @@ class OatWriter {
 
   ~OatWriter();
 
-  ArrayRef<const debug::MethodDebugInfo> GetMethodDebugInfo() const {
-    return ArrayRef<const debug::MethodDebugInfo>(method_info_);
-  }
+  debug::DebugInfo GetDebugInfo() const;
 
   const CompilerDriver* GetCompilerDriver() const {
     return compiler_driver_;
@@ -317,7 +317,7 @@ class OatWriter {
                     bool update_input_vdex);
   bool OpenDexFiles(File* file,
                     bool verify,
-                    /*out*/ std::unique_ptr<MemMap>* opened_dex_files_map,
+                    /*out*/ std::vector<std::unique_ptr<MemMap>>* opened_dex_files_map,
                     /*out*/ std::vector<std::unique_ptr<const DexFile>>* opened_dex_files);
 
   size_t InitOatHeader(InstructionSet instruction_set,
@@ -383,6 +383,8 @@ class OatWriter {
   const CompilerDriver* compiler_driver_;
   ImageWriter* image_writer_;
   const bool compiling_boot_image_;
+  // Whether the dex files being compiled are all uncompressed in the APK.
+  bool only_contains_uncompressed_zip_entries_;
 
   // note OatFile does not take ownership of the DexFiles
   const std::vector<const DexFile*>* dex_files_;
@@ -392,6 +394,9 @@ class OatWriter {
 
   // Offset of section holding Dex files inside Vdex.
   size_t vdex_dex_files_offset_;
+
+  // Offset of section holding shared dex data section in the Vdex.
+  size_t vdex_dex_shared_data_offset_;
 
   // Offset of section holding VerifierDeps inside Vdex.
   size_t vdex_verifier_deps_offset_;
@@ -539,6 +544,9 @@ class OatWriter {
   // Methods can be inserted more than once in case of duplicated methods.
   // This pointer is only non-null after InitOatCodeDexFiles succeeds.
   std::unique_ptr<OrderedMethodList> ordered_methods_;
+
+  // Container of shared dex data.
+  std::unique_ptr<DexContainer> dex_container_;
 
   DISALLOW_COPY_AND_ASSIGN(OatWriter);
 };

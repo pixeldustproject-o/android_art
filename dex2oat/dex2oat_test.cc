@@ -1712,4 +1712,19 @@ TEST_F(Dex2oatTest, QuickenedInput) {
   ASSERT_EQ(vdex_unquickened->FlushCloseOrErase(), 0) << "Could not flush and close";
 }
 
+TEST_F(Dex2oatTest, UncompressedTest) {
+  std::unique_ptr<const DexFile> dex(OpenTestDexFile("MainUncompressed"));
+  std::string out_dir = GetScratchDir();
+  const std::string base_oat_name = out_dir + "/base.oat";
+  GenerateOdexForTest(dex->GetLocation(),
+                      base_oat_name,
+                      CompilerFilter::Filter::kQuicken,
+                      { },
+                      true,  // expect_success
+                      false,  // use_fd
+                      [](const OatFile& o) {
+                        CHECK(!o.ContainsDexCode());
+                      });
+}
+
 }  // namespace art

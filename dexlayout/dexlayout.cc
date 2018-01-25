@@ -1839,13 +1839,17 @@ void DexLayout::OutputDexFile(const DexFile* input_dex_file,
     }
   }
   DexWriter::Output(this, dex_container, compute_offsets);
-  DexContainer* const container = dex_container->get();
-  DexContainer::Section* const main_section = container->GetMainSection();
-  DexContainer::Section* const data_section = container->GetDataSection();
-  CHECK_EQ(data_section->Size(), 0u) << "Unsupported";
   if (new_file != nullptr) {
+    DexContainer* const container = dex_container->get();
+    DexContainer::Section* const main_section = container->GetMainSection();
     if (!new_file->WriteFully(main_section->Begin(), main_section->Size())) {
-      LOG(ERROR) << "Failed tow write dex file to " << dex_file_location;
+      LOG(ERROR) << "Failed to write main section for dex file " << dex_file_location;
+      new_file->Erase();
+      return;
+    }
+    DexContainer::Section* const data_section = container->GetDataSection();
+    if (!new_file->WriteFully(data_section->Begin(), data_section->Size())) {
+      LOG(ERROR) << "Failed to write data section for dex file " << dex_file_location;
       new_file->Erase();
       return;
     }
@@ -1870,7 +1874,9 @@ void DexLayout::ProcessDexFile(const char* file_name,
     // These options required the offsets for dumping purposes.
     eagerly_assign_offsets = true;
   }
-  std::unique_ptr<dex_ir::Header> header(dex_ir::DexIrBuilder(*dex_file, eagerly_assign_offsets));
+  std::unique_ptr<dex_ir::Header> header(dex_ir::DexIrBuilder(*dex_file,
+                                                               eagerly_assign_offsets,
+                                                               GetOptions()));
   SetHeader(header.get());
 
   if (options_.verbose_) {
@@ -1920,17 +1926,22 @@ void DexLayout::ProcessDexFile(const char* file_name,
       // Dex file verifier cannot handle compact dex.
       bool verify = options_.compact_dex_level_ == CompactDexLevel::kCompactDexLevelNone;
       const ArtDexFileLoader dex_file_loader;
-      DexContainer::Section* section = (*dex_container)->GetMainSection();
-      DCHECK_EQ(file_size, section->Size());
+      DexContainer::Section* const main_section = (*dex_container)->GetMainSection();
+      DexContainer::Section* const data_section = (*dex_container)->GetDataSection();
+      DCHECK_EQ(file_size, main_section->Size())
+          << main_section->Size() << " " << data_section->Size();
       std::unique_ptr<const DexFile> output_dex_file(
-          dex_file_loader.Open(section->Begin(),
-                               file_size,
-                               location,
-                               /* checksum */ 0,
-                               /*oat_dex_file*/ nullptr,
-                               verify,
-                               /*verify_checksum*/ false,
-                               &error_msg));
+          dex_file_loader.OpenWithDataSection(
+              main_section->Begin(),
+              main_section->Size(),
+              data_section->Begin(),
+              data_section->Size(),
+              location,
+              /* checksum */ 0,
+              /*oat_dex_file*/ nullptr,
+              verify,
+              /*verify_checksum*/ false,
+              &error_msg));
       CHECK(output_dex_file != nullptr) << "Failed to re-open output file:" << error_msg;
 
       // Do IR-level comparison between input and output. This check ignores potential differences
@@ -1940,10 +1951,12 @@ void DexLayout::ProcessDexFile(const char* file_name,
       // Regenerate output IR to catch any bugs that might happen during writing.
       std::unique_ptr<dex_ir::Header> output_header(
           dex_ir::DexIrBuilder(*output_dex_file,
-                               /*eagerly_assign_offsets*/ true));
+                               /*eagerly_assign_offsets*/ true,
+                               GetOptions()));
       std::unique_ptr<dex_ir::Header> orig_header(
           dex_ir::DexIrBuilder(*dex_file,
-                               /*eagerly_assign_offsets*/ true));
+                               /*eagerly_assign_offsets*/ true,
+                               GetOptions()));
       CHECK(VerifyOutputDexFile(output_header.get(), orig_header.get(), &error_msg)) << error_msg;
     }
   }

@@ -34,7 +34,8 @@ CompactDexLevel CompactDexWriter::GetCompactDexLevel() const {
 }
 
 CompactDexWriter::Container::Container(bool dedupe_code_items)
-    : code_item_dedupe_(dedupe_code_items, &data_section_) {}
+    : code_item_dedupe_(dedupe_code_items, &data_section_),
+      data_item_dedupe_(/*dedupe*/ true, &data_section_) {}
 
 uint32_t CompactDexWriter::WriteDebugInfoOffsetTable(Stream* stream) {
   const uint32_t start_offset = stream->Tell();
@@ -103,16 +104,48 @@ uint32_t CompactDexWriter::WriteDebugInfoOffsetTable(Stream* stream) {
   return stream->Tell() - start_offset;
 }
 
-uint32_t CompactDexWriter::WriteCodeItem(Stream* stream,
-                                         dex_ir::CodeItem* code_item,
-                                         bool reserve_only) {
+CompactDexWriter::ScopedDataSectionItem::ScopedDataSectionItem(Stream* stream,
+                                                               dex_ir::Item* item,
+                                                               size_t alignment,
+                                                               Deduper* deduper)
+    : stream_(stream),
+      item_(item),
+      alignment_(alignment),
+      deduper_(deduper),
+      start_offset_(stream->Tell()) {
+  stream_->AlignTo(alignment_);
+}
+
+CompactDexWriter::ScopedDataSectionItem::~ScopedDataSectionItem() {
+  // After having written, maybe dedupe the whole code item (excluding padding).
+  const uint32_t deduped_offset = deduper_->Dedupe(start_offset_,
+                                                   stream_->Tell(),
+                                                   item_->GetOffset());
+  // If we deduped, only use the deduped offset if the alignment matches the required alignment.
+  // Otherwise, return without deduping.
+  if (deduped_offset != Deduper::kDidNotDedupe && IsAlignedParam(deduped_offset, alignment_)) {
+    // Update the IR offset to the offset of the deduped item.
+    item_->SetOffset(deduped_offset);
+    // Clear the written data for the item so that the stream write doesn't abort in the future.
+    stream_->Clear(start_offset_, stream_->Tell() - start_offset_);
+    // Since we deduped, restore the offset to the original position.
+    stream_->Seek(start_offset_);
+  }
+}
+
+size_t CompactDexWriter::ScopedDataSectionItem::Written() const {
+  return stream_->Tell() - start_offset_;
+}
+
+void CompactDexWriter::WriteCodeItem(Stream* stream,
+                                     dex_ir::CodeItem* code_item,
+                                     bool reserve_only) {
   DCHECK(code_item != nullptr);
   DCHECK(!reserve_only) << "Not supported because of deduping.";
-  const uint32_t start_offset = stream->Tell();
-
-  // Align to minimum requirements, additional alignment requirements are handled below after we
-  // know the preheader size.
-  stream->AlignTo(CompactDexFile::CodeItem::kAlignment);
+  ScopedDataSectionItem data_item(stream,
+                                  code_item,
+                                  CompactDexFile::CodeItem::kAlignment,
+                                  code_item_dedupe_);
 
   CompactDexFile::CodeItem disk_code_item;
 
@@ -129,11 +162,18 @@ uint32_t CompactDexWriter::WriteCodeItem(Stream* stream,
 
   static constexpr size_t kPayloadInstructionRequiredAlignment = 4;
   const uint32_t current_code_item_start = stream->Tell() + preheader_bytes;
-  if (!IsAlignedParam(current_code_item_start, kPayloadInstructionRequiredAlignment)) {
+  if (!IsAlignedParam(current_code_item_start, kPayloadInstructionRequiredAlignment) ||
+      kIsDebugBuild) {
     // If the preheader is going to make the code unaligned, consider adding 2 bytes of padding
     // before if required.
-    for (const DexInstructionPcPair& instruction : code_item->Instructions()) {
-      const Instruction::Code opcode = instruction->Opcode();
+    IterationRange<DexInstructionIterator> instructions = code_item->Instructions();
+    SafeDexInstructionIterator it(instructions.begin(), instructions.end());
+    for (; !it.IsErrorState() && it < instructions.end(); ++it) {
+      // In case the instruction goes past the end of the code item, make sure to not process it.
+      if (std::next(it).IsErrorState()) {
+        break;
+      }
+      const Instruction::Code opcode = it->Opcode();
       // Payload instructions possibly require special alignment for their data.
       if (opcode == Instruction::FILL_ARRAY_DATA ||
           opcode == Instruction::PACKED_SWITCH ||
@@ -146,8 +186,6 @@ uint32_t CompactDexWriter::WriteCodeItem(Stream* stream,
     }
   }
 
-  const uint32_t data_start = stream->Tell();
-
   // Write preheader first.
   stream->Write(reinterpret_cast<const uint8_t*>(preheader), preheader_bytes);
   // Registered offset is after the preheader.
@@ -159,20 +197,15 @@ uint32_t CompactDexWriter::WriteCodeItem(Stream* stream,
   stream->Write(code_item->Insns(), code_item->InsnsSize() * sizeof(uint16_t));
   // Write the post instruction data.
   WriteCodeItemPostInstructionData(stream, code_item, reserve_only);
+}
 
-  if (compute_offsets_) {
-    // After having written, maybe dedupe the whole code item (excluding padding).
-    const uint32_t deduped_offset = code_item_dedupe_->Dedupe(data_start,
-                                                              stream->Tell(),
-                                                              code_item->GetOffset());
-    if (deduped_offset != Deduper::kDidNotDedupe) {
-      code_item->SetOffset(deduped_offset);
-      // Undo the offset for all that we wrote since we deduped.
-      stream->Seek(start_offset);
-    }
-  }
-
-  return stream->Tell() - start_offset;
+void CompactDexWriter::WriteDebugInfoItem(Stream* stream, dex_ir::DebugInfoItem* debug_info) {
+  ScopedDataSectionItem data_item(stream,
+                                  debug_info,
+                                  SectionAlignment(DexFile::kDexTypeDebugInfoItem),
+                                  data_item_dedupe_);
+  ProcessOffset(stream, debug_info);
+  stream->Write(debug_info->GetDebugInfo(), debug_info->GetDebugInfoSize());
 }
 
 
@@ -283,14 +316,36 @@ size_t CompactDexWriter::GetHeaderSize() const {
   return sizeof(CompactDexFile::Header);
 }
 
+void CompactDexWriter::WriteStringData(Stream* stream, dex_ir::StringData* string_data) {
+  ScopedDataSectionItem data_item(stream,
+                                  string_data,
+                                  SectionAlignment(DexFile::kDexTypeStringDataItem),
+                                  data_item_dedupe_);
+  ProcessOffset(stream, string_data);
+  stream->WriteUleb128(CountModifiedUtf8Chars(string_data->Data()));
+  stream->Write(string_data->Data(), strlen(string_data->Data()));
+  // Skip null terminator (already zeroed out, no need to write).
+  stream->Skip(1);
+}
+
 void CompactDexWriter::Write(DexContainer* output)  {
+  CHECK(compute_offsets_);
   CHECK(output->IsCompactDexContainer());
   Container* const container = down_cast<Container*>(output);
   // For now, use the same stream for both data and metadata.
-  Stream stream(output->GetMainSection());
-  Stream* main_stream = &stream;
-  Stream* data_stream = &stream;
+  Stream temp_main_stream(output->GetMainSection());
+  CHECK_EQ(output->GetMainSection()->Size(), 0u);
+  Stream temp_data_stream(output->GetDataSection());
+  Stream* main_stream = &temp_main_stream;
+  Stream* data_stream = &temp_data_stream;
+
+  // We want offset 0 to be reserved for null, seek to the data section alignment or the end of the
+  // section.
+  data_stream->Seek(std::max(
+      static_cast<uint32_t>(output->GetDataSection()->Size()),
+      kDataSectionAlignment));
   code_item_dedupe_ = &container->code_item_dedupe_;
+  data_item_dedupe_ = &container->data_item_dedupe_;
 
   // Starting offset is right after the header.
   main_stream->Seek(GetHeaderSize());
@@ -312,11 +367,9 @@ void CompactDexWriter::Write(DexContainer* output)  {
   WriteCallSiteIds(main_stream, /*reserve_only*/ true);
   WriteMethodHandles(main_stream);
 
-  uint32_t data_offset_ = 0u;
   if (compute_offsets_) {
     // Data section.
     data_stream->AlignTo(kDataSectionAlignment);
-    data_offset_ = data_stream->Tell();
   }
 
   // Write code item first to minimize the space required for encoded methods.
@@ -362,19 +415,9 @@ void CompactDexWriter::Write(DexContainer* output)  {
   } else {
     data_stream->Seek(collection.MapListOffset());
   }
-  GenerateAndWriteMapItems(data_stream);
-  data_stream->AlignTo(kDataSectionAlignment);
 
   // Map items are included in the data section.
-  if (compute_offsets_) {
-    header_->SetDataSize(data_stream->Tell() - data_offset_);
-    if (header_->DataSize() != 0) {
-      // Offset must be zero when the size is zero.
-      header_->SetDataOffset(data_offset_);
-    } else {
-      header_->SetDataOffset(0u);
-    }
-  }
+  GenerateAndWriteMapItems(data_stream);
 
   // Write link data if it exists.
   const std::vector<uint8_t>& link_data = collection.LinkData();
@@ -391,19 +434,39 @@ void CompactDexWriter::Write(DexContainer* output)  {
   // Write debug info offset table last to make dex file verifier happy.
   WriteDebugInfoOffsetTable(data_stream);
 
+  data_stream->AlignTo(kDataSectionAlignment);
+  if (compute_offsets_) {
+    header_->SetDataSize(data_stream->Tell());
+    if (header_->DataSize() != 0) {
+      // Offset must be zero when the size is zero.
+      main_stream->AlignTo(kDataSectionAlignment);
+      // For now, default to saying the data is right after the main stream.
+      header_->SetDataOffset(main_stream->Tell());
+      header_->SetDataOffset(0u);
+    } else {
+      header_->SetDataOffset(0u);
+    }
+  }
+
   // Write header last.
   if (compute_offsets_) {
     header_->SetFileSize(main_stream->Tell());
   }
   WriteHeader(main_stream);
 
+  // Trim sections to make sure they are sized properly.
+  output->GetMainSection()->Resize(header_->FileSize());
+  output->GetDataSection()->Resize(data_stream->Tell());
+
   if (dex_layout_->GetOptions().update_checksum_) {
-    header_->SetChecksum(DexFile::CalculateChecksum(main_stream->Begin(), header_->FileSize()));
+    // Compute the cdex section (also covers the used part of the data section).
+    header_->SetChecksum(CompactDexFile::CalculateChecksum(output->GetMainSection()->Begin(),
+                                                           output->GetMainSection()->Size(),
+                                                           output->GetDataSection()->Begin(),
+                                                           output->GetDataSection()->Size()));
     // Rewrite the header with the calculated checksum.
     WriteHeader(main_stream);
   }
-  // Trim the map to make it sized as large as the dex file.
-  output->GetMainSection()->Resize(header_->FileSize());
 
   // Clear the dedupe to prevent interdex code item deduping. This does not currently work well with
   // dex2oat's class unloading. The issue is that verification encounters quickened opcodes after

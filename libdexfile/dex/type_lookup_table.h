@@ -44,7 +44,7 @@ class TypeLookupTable {
 
   // Create an invalid lookup table.
   TypeLookupTable()
-      : dex_file_begin_(nullptr),
+      : dex_data_begin_(nullptr),
         mask_bits_(0u),
         entries_(nullptr),
         owned_entries_(nullptr) {}
@@ -170,7 +170,7 @@ class TypeLookupTable {
 
   const char* GetStringData(const Entry& entry) const;
 
-  const uint8_t* dex_file_begin_;
+  const uint8_t* dex_data_begin_;
   uint32_t mask_bits_;
   Entry* entries_;
   // `owned_entries_` is either null (not owning `entries_`) or same pointer as `entries_`.

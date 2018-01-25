@@ -30,8 +30,12 @@ class CodeItemAccessorsTest : public testing::Test {};
 std::unique_ptr<const DexFile> CreateFakeDex(bool compact_dex, std::vector<uint8_t>* data) {
   data->resize(kPageSize);
   if (compact_dex) {
-    CompactDexFile::WriteMagic(data->data());
-    CompactDexFile::WriteCurrentVersion(data->data());
+    CompactDexFile::Header* header =
+        const_cast<CompactDexFile::Header*>(CompactDexFile::Header::At(data->data()));
+    CompactDexFile::WriteMagic(header->magic_);
+    CompactDexFile::WriteCurrentVersion(header->magic_);
+    header->data_off_ = 0;
+    header->data_size_ = data->Size();
   } else {
     StandardDexFile::WriteMagic(data->data());
     StandardDexFile::WriteCurrentVersion(data->data());

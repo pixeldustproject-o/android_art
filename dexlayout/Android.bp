@@ -78,10 +78,27 @@ art_cc_binary {
     ],
 }
 
+art_cc_binary {
+    name: "dexlayoutd",
+    defaults: [
+        "art_debug_defaults",
+        "dexlayout-defaults",
+    ],
+    shared_libs: [
+        "libprofiled",
+        "libartd",
+        "libartbased",
+        "libartd-dexlayout",
+    ],
+}
+
 art_cc_test {
     name: "art_dexlayout_tests",
     defaults: ["art_gtest_defaults"],
-    shared_libs: ["libprofiled"],
+    shared_libs: [
+        "libprofiled",
+        "libartd-dexlayout",
+    ],
     srcs: ["dexlayout_test.cc"],
 }
 

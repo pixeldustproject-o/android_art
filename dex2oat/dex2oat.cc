@@ -1550,7 +1550,7 @@ class Dex2Oat FINAL {
       for (size_t i = 0, size = oat_writers_.size(); i != size; ++i) {
         rodata_.push_back(elf_writers_[i]->StartRoData());
         // Unzip or copy dex files straight to the oat file.
-        std::unique_ptr<MemMap> opened_dex_files_map;
+        std::vector<std::unique_ptr<MemMap>> opened_dex_files_map;
         std::vector<std::unique_ptr<const DexFile>> opened_dex_files;
         // No need to verify the dex file for:
         // 1) Dexlayout since it does the verification. It also may not pass the verification since
@@ -1570,14 +1570,16 @@ class Dex2Oat FINAL {
           return dex2oat::ReturnCode::kOther;
         }
         dex_files_per_oat_file_.push_back(MakeNonOwningPointerVector(opened_dex_files));
-        if (opened_dex_files_map != nullptr) {
-          opened_dex_files_maps_.push_back(std::move(opened_dex_files_map));
+        if (opened_dex_files_map.empty()) {
+          DCHECK(opened_dex_files.empty());
+        } else {
+          for (std::unique_ptr<MemMap>& map : opened_dex_files_map) {
+            opened_dex_files_maps_.push_back(std::move(map));
+          }
           for (std::unique_ptr<const DexFile>& dex_file : opened_dex_files) {
             dex_file_oat_index_map_.emplace(dex_file.get(), i);
             opened_dex_files_.push_back(std::move(dex_file));
           }
-        } else {
-          DCHECK(opened_dex_files.empty());
         }
       }
     }
@@ -2042,7 +2044,8 @@ class Dex2Oat FINAL {
 
         // We need to mirror the layout of the ELF file in the compressed debug-info.
         // Therefore PrepareDebugInfo() relies on the SetLoadedSectionSizes() call further above.
-        elf_writer->PrepareDebugInfo(oat_writer->GetMethodDebugInfo());
+        debug::DebugInfo debug_info = oat_writer->GetDebugInfo();  // Keep the variable alive.
+        elf_writer->PrepareDebugInfo(debug_info);  // Processes the data on background thread.
 
         linker::OutputStream*& rodata = rodata_[i];
         DCHECK(rodata != nullptr);
@@ -2086,7 +2089,7 @@ class Dex2Oat FINAL {
         }
 
         elf_writer->WriteDynamicSection();
-        elf_writer->WriteDebugInfo(oat_writer->GetMethodDebugInfo());
+        elf_writer->WriteDebugInfo(oat_writer->GetDebugInfo());
 
         if (!elf_writer->End()) {
           LOG(ERROR) << "Failed to write ELF file " << oat_file->GetPath();

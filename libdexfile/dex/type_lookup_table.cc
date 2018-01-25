@@ -101,7 +101,7 @@ bool TypeLookupTable::SupportedSize(uint32_t num_class_defs) {
 }
 
 TypeLookupTable::TypeLookupTable(const DexFile& dex_file, uint8_t* storage)
-    : dex_file_begin_(dex_file.Begin()),
+    : dex_data_begin_(dex_file.DataBegin()),
       mask_bits_(CalculateMaskBits(dex_file.NumClassDefs())),
       entries_(SupportedSize(dex_file.NumClassDefs())
                    ? (storage != nullptr)
@@ -159,14 +159,14 @@ TypeLookupTable::TypeLookupTable(const DexFile& dex_file, uint8_t* storage)
 TypeLookupTable::TypeLookupTable(const uint8_t* dex_file_pointer,
                                  const uint8_t* raw_data,
                                  uint32_t num_class_defs)
-    : dex_file_begin_(dex_file_pointer),
+    : dex_data_begin_(dex_file_pointer),
       mask_bits_(CalculateMaskBits(num_class_defs)),
       entries_(reinterpret_cast<Entry*>(const_cast<uint8_t*>(raw_data))),
       owned_entries_(nullptr) {}
 
 const char* TypeLookupTable::GetStringData(const Entry& entry) const {
-  DCHECK(dex_file_begin_ != nullptr);
-  const uint8_t* ptr = dex_file_begin_ + entry.GetStringOffset();
+  DCHECK(dex_data_begin_ != nullptr);
+  const uint8_t* ptr = dex_data_begin_ + entry.GetStringOffset();
   // Skip string length.
   DecodeUnsignedLeb128(&ptr);
   return reinterpret_cast<const char*>(ptr);

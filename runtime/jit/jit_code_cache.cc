@@ -536,7 +536,11 @@ void JitCodeCache::FreeCodeAndData(const void* code_ptr) {
   uintptr_t allocation = FromCodeToAllocation(code_ptr);
   // Notify native debugger that we are about to remove the code.
   // It does nothing if we are not using native debugger.
-  DeleteJITCodeEntryForAddress(reinterpret_cast<uintptr_t>(code_ptr));
+  MutexLock mu(Thread::Current(), g_jit_debug_mutex);
+  JITCodeEntry* entry = GetJITCodeEntry(reinterpret_cast<uintptr_t>(code_ptr));
+  if (entry != nullptr) {
+    DecrementJITCodeEntryRefcount(entry, reinterpret_cast<uintptr_t>(code_ptr));
+  }
   if (OatQuickMethodHeader::FromCodePointer(code_ptr)->IsOptimized()) {
     FreeData(GetRootTable(code_ptr));
   }  // else this is a JNI stub without any data.
