@@ -55,8 +55,10 @@ Location Mips64ReturnLocation(DataType::Type return_type) {
     case DataType::Type::kInt8:
     case DataType::Type::kUint16:
     case DataType::Type::kInt16:
+    case DataType::Type::kUint32:
     case DataType::Type::kInt32:
     case DataType::Type::kReference:
+    case DataType::Type::kUint64:
     case DataType::Type::kInt64:
       return Location::RegisterLocation(V0);
 
@@ -2377,6 +2379,8 @@ void InstructionCodeGeneratorMIPS64::VisitArrayGet(HArrayGet* instruction) {
       break;
     }
 
+    case DataType::Type::kUint32:
+    case DataType::Type::kUint64:
     case DataType::Type::kVoid:
       LOG(FATAL) << "Unreachable type " << instruction->GetType();
       UNREACHABLE();
@@ -2680,6 +2684,8 @@ void InstructionCodeGeneratorMIPS64::VisitArraySet(HArraySet* instruction) {
       break;
     }
 
+    case DataType::Type::kUint32:
+    case DataType::Type::kUint64:
     case DataType::Type::kVoid:
       LOG(FATAL) << "Unreachable type " << instruction->GetType();
       UNREACHABLE();
@@ -4709,6 +4715,8 @@ void InstructionCodeGeneratorMIPS64::HandleFieldGet(HInstruction* instruction,
     case DataType::Type::kReference:
       load_type = kLoadUnsignedWord;
       break;
+    case DataType::Type::kUint32:
+    case DataType::Type::kUint64:
     case DataType::Type::kVoid:
       LOG(FATAL) << "Unreachable type " << type;
       UNREACHABLE();
@@ -4802,6 +4810,8 @@ void InstructionCodeGeneratorMIPS64::HandleFieldSet(HInstruction* instruction,
     case DataType::Type::kFloat64:
       store_type = kStoreDoubleword;
       break;
+    case DataType::Type::kUint32:
+    case DataType::Type::kUint64:
     case DataType::Type::kVoid:
       LOG(FATAL) << "Unreachable type " << type;
       UNREACHABLE();
