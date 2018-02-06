@@ -630,6 +630,7 @@ void ThrowNullPointerExceptionFromDexPC(bool check_address, uintptr_t addr) {
     case Instruction::IGET_SHORT: {
       ArtField* field =
           Runtime::Current()->GetClassLinker()->ResolveField(instr.VRegC_22c(), method, false);
+      Thread::Current()->ClearException();  // Resolution may fail, ignore.
       ThrowNullPointerExceptionForFieldAccess(field, true /* read */);
       break;
     }
@@ -662,6 +663,7 @@ void ThrowNullPointerExceptionFromDexPC(bool check_address, uintptr_t addr) {
     case Instruction::IPUT_SHORT: {
       ArtField* field =
           Runtime::Current()->GetClassLinker()->ResolveField(instr.VRegC_22c(), method, false);
+      Thread::Current()->ClearException();  // Resolution may fail, ignore.
       ThrowNullPointerExceptionForFieldAccess(field, false /* write */);
       break;
     }
