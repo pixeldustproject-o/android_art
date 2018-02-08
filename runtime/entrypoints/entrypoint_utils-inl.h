@@ -81,13 +81,14 @@ inline ArtMethod* GetResolvedMethod(ArtMethod* outer_method,
 
   // Lookup the declaring class of the inlined method.
   ObjPtr<mirror::DexCache> dex_cache = caller->GetDexCache();
-  const DexFile* dex_file = dex_cache->GetDexFile();
-  const DexFile::MethodId& method_id = dex_file->GetMethodId(method_index);
   ArtMethod* inlined_method = dex_cache->GetResolvedMethod(method_index, kRuntimePointerSize);
   if (inlined_method != nullptr) {
     DCHECK(!inlined_method->IsRuntimeMethod());
     return inlined_method;
   }
+  // TODO: Use ClassLoader::LookupResolvedMethod() instead.
+  const DexFile* dex_file = dex_cache->GetDexFile();
+  const DexFile::MethodId& method_id = dex_file->GetMethodId(method_index);
   const char* descriptor = dex_file->StringByTypeIdx(method_id.class_idx_);
   ClassLinker* class_linker = Runtime::Current()->GetClassLinker();
   Thread* self = Thread::Current();
@@ -99,14 +100,13 @@ inline ArtMethod* GetResolvedMethod(ArtMethod* outer_method,
                << "This must be due to playing wrongly with class loaders";
   }
 
-  inlined_method = klass->FindClassMethod(dex_cache, method_index, kRuntimePointerSize);
+  inlined_method = class_linker->FindResolvedMethod(klass, dex_cache, class_loader, method_index);
   if (inlined_method == nullptr) {
     LOG(FATAL) << "Could not find an inlined method from an .oat file: the class " << descriptor
                << " does not have " << dex_file->GetMethodName(method_id)
                << dex_file->GetMethodSignature(method_id) << " declared. "
                << "This must be due to duplicate classes or playing wrongly with class loaders";
   }
-  dex_cache->SetResolvedMethod(method_index, inlined_method, kRuntimePointerSize);
 
   return inlined_method;
 }
