@@ -350,7 +350,7 @@ OatWriter::OatWriter(bool compiling_boot_image,
     compiler_driver_(nullptr),
     image_writer_(nullptr),
     compiling_boot_image_(compiling_boot_image),
-    only_contains_uncompressed_zip_entries_(false),
+    extract_dex_files_into_vdex_(true),
     dex_files_(nullptr),
     vdex_size_(0u),
     vdex_dex_files_offset_(0u),
@@ -576,6 +576,7 @@ bool OatWriter::WriteAndOpenDexFiles(
     SafeMap<std::string, std::string>* key_value_store,
     bool verify,
     bool update_input_vdex,
+    bool copy_dex_files,
     /*out*/ std::vector<std::unique_ptr<MemMap>>* opened_dex_files_map,
     /*out*/ std::vector<std::unique_ptr<const DexFile>>* opened_dex_files) {
   CHECK(write_state_ == WriteState::kAddingDexFileSources);
@@ -602,7 +603,7 @@ bool OatWriter::WriteAndOpenDexFiles(
   std::unique_ptr<BufferedOutputStream> vdex_out =
       std::make_unique<BufferedOutputStream>(std::make_unique<FileOutputStream>(vdex_file));
   // Write DEX files into VDEX, mmap and open them.
-  if (!WriteDexFiles(vdex_out.get(), vdex_file, update_input_vdex) ||
+  if (!WriteDexFiles(vdex_out.get(), vdex_file, update_input_vdex, copy_dex_files) ||
       !OpenDexFiles(vdex_file, verify, &dex_files_map, &dex_files)) {
     return false;
   }
@@ -2654,7 +2655,7 @@ class OatWriter::WriteQuickeningInfoOffsetsMethodVisitor {
 };
 
 bool OatWriter::WriteQuickeningInfo(OutputStream* vdex_out) {
-  if (only_contains_uncompressed_zip_entries_) {
+  if (!extract_dex_files_into_vdex_) {
     // Nothing to write. Leave `vdex_size_` untouched and unaligned.
     vdex_quickening_info_offset_ = vdex_size_;
     size_quickening_info_alignment_ = 0;
@@ -3353,25 +3354,33 @@ bool OatWriter::ValidateDexFileHeader(const uint8_t* raw_header, const char* loc
   return true;
 }
 
-bool OatWriter::WriteDexFiles(OutputStream* out, File* file, bool update_input_vdex) {
+bool OatWriter::WriteDexFiles(OutputStream* out,
+                              File* file,
+                              bool update_input_vdex,
+                              bool copy_dex_files) {
   TimingLogger::ScopedTiming split("Write Dex files", timings_);
 
   vdex_dex_files_offset_ = vdex_size_;
 
-  only_contains_uncompressed_zip_entries_ = true;
-  for (OatDexFile& oat_dex_file : oat_dex_files_) {
-    if (!oat_dex_file.source_.IsZipEntry()) {
-      only_contains_uncompressed_zip_entries_ = false;
-      break;
+  // If extraction is enabled, only do it if not all the dex files are aligned and uncompressed.
+  if (copy_dex_files) {
+    extract_dex_files_into_vdex_ = false;
+    for (OatDexFile& oat_dex_file : oat_dex_files_) {
+      if (!oat_dex_file.source_.IsZipEntry()) {
+        extract_dex_files_into_vdex_ = true;
+        break;
+      }
+      ZipEntry* entry = oat_dex_file.source_.GetZipEntry();
+      if (!entry->IsUncompressed() || !entry->IsAlignedTo(alignof(DexFile::Header))) {
+        extract_dex_files_into_vdex_ = true;
+        break;
+      }
     }
-    ZipEntry* entry = oat_dex_file.source_.GetZipEntry();
-    if (!entry->IsUncompressed() || !entry->IsAlignedTo(alignof(DexFile::Header))) {
-      only_contains_uncompressed_zip_entries_ = false;
-      break;
-    }
+  } else {
+    extract_dex_files_into_vdex_ = false;
   }
 
-  if (!only_contains_uncompressed_zip_entries_) {
+  if (extract_dex_files_into_vdex_) {
     // Write dex files.
     for (OatDexFile& oat_dex_file : oat_dex_files_) {
       if (!WriteDexFile(out, file, &oat_dex_file, update_input_vdex)) {
@@ -3387,15 +3396,19 @@ bool OatWriter::WriteDexFiles(OutputStream* out, File* file, bool update_input_v
       CHECK(!update_input_vdex) << "Update input vdex should have empty dex container";
       DexContainer::Section* const section = dex_container_->GetDataSection();
       if (section->Size() > 0) {
-        const uint32_t shared_data_offset = vdex_size_;
         const off_t existing_offset = out->Seek(0, kSeekCurrent);
-        if (static_cast<uint32_t>(existing_offset) != shared_data_offset) {
-          LOG(ERROR) << "Expected offset " << shared_data_offset << " but got " << existing_offset;
+        if (static_cast<uint32_t>(existing_offset) != vdex_dex_shared_data_offset_) {
+          PLOG(ERROR) << "Expected offset " << vdex_dex_shared_data_offset_ << " but got "
+                      << existing_offset;
           return false;
         }
         shared_data_size = section->Size();
         if (!out->WriteFully(section->Begin(), shared_data_size)) {
-          LOG(ERROR) << "Failed to write shared data!";
+          PLOG(ERROR) << "Failed to write shared data!";
+          return false;
+        }
+        if (!out->Flush()) {
+          PLOG(ERROR) << "Failed to flush after writing shared dex section.";
           return false;
         }
         // Fix up the dex headers to have correct offsets to the data section.
@@ -3403,49 +3416,69 @@ bool OatWriter::WriteDexFiles(OutputStream* out, File* file, bool update_input_v
           // Overwrite the header by reading it, updating the offset, and writing it back out.
           DexFile::Header header;
           if (!file->PreadFully(&header, sizeof(header), oat_dex_file.dex_file_offset_)) {
-            LOG(ERROR) << "Failed to read dex header for updating";
+            PLOG(ERROR) << "Failed to read dex header for updating";
             return false;
           }
           CHECK(CompactDexFile::IsMagicValid(header.magic_)) << "Must be compact dex";
-          CHECK_GT(shared_data_offset, oat_dex_file.dex_file_offset_);
+          CHECK_GT(vdex_dex_shared_data_offset_, oat_dex_file.dex_file_offset_);
           // Offset is from the dex file base.
-          header.data_off_ = shared_data_offset - oat_dex_file.dex_file_offset_;
+          header.data_off_ = vdex_dex_shared_data_offset_ - oat_dex_file.dex_file_offset_;
           // The size should already be what part of the data buffer may be used by the dex.
           CHECK_LE(header.data_size_, shared_data_size);
           if (!file->PwriteFully(&header, sizeof(header), oat_dex_file.dex_file_offset_)) {
-            LOG(ERROR) << "Failed to write dex header for updating";
+            PLOG(ERROR) << "Failed to write dex header for updating";
             return false;
           }
         }
         section->Clear();
-        if (!out->Flush()) {
-          PLOG(ERROR) << "Failed to flush after writing shared dex section.";
-          return false;
-        }
       }
       dex_container_.reset();
     } else {
-      if (update_input_vdex) {
-        for (OatDexFile& oat_dex_file : oat_dex_files_) {
-          DexFile::Header header;
-          if (!file->PreadFully(&header, sizeof(header), oat_dex_file.dex_file_offset_)) {
-            PLOG(ERROR) << "Failed to read dex header";
-            return false;
+      const uint8_t* data_begin = nullptr;
+      for (OatDexFile& oat_dex_file : oat_dex_files_) {
+        DexFile::Header header;
+        if (!file->PreadFully(&header, sizeof(header), oat_dex_file.dex_file_offset_)) {
+          PLOG(ERROR) << "Failed to read dex header";
+          return false;
+        }
+        if (!CompactDexFile::IsMagicValid(header.magic_)) {
+          // Non compact dex does not have shared data section.
+          continue;
+        }
+        const uint32_t expected_data_off = vdex_dex_shared_data_offset_ -
+            oat_dex_file.dex_file_offset_;
+        if (header.data_off_ != expected_data_off) {
+          PLOG(ERROR) << "Shared data section offset " << header.data_off_
+                      << " does not match expected value " << expected_data_off;
+          return false;
+        }
+        if (oat_dex_file.source_.IsRawData()) {
+          // Figure out the start of the shared data section so we can copy it below.
+          const uint8_t* cur_data_begin = oat_dex_file.source_.GetRawData() + header.data_off_;
+          if (data_begin != nullptr) {
+            CHECK_EQ(data_begin, cur_data_begin);
           }
-          if (!CompactDexFile::IsMagicValid(header.magic_)) {
-            // Non compact dex does not have shared data section.
-            continue;
-          }
-          const uint32_t expected_data_off = vdex_dex_shared_data_offset_ -
-              oat_dex_file.dex_file_offset_;
-          if (header.data_off_ != expected_data_off) {
-            PLOG(ERROR) << "Shared data section offset " << header.data_off_
-                        << " does not match expected value " << expected_data_off;
-            return false;
-          }
-          // The different dex files currently can have different data sizes since
-          // the dex writer writes them one at a time into the shared section.:w
-          shared_data_size = std::max(shared_data_size, header.data_size_);
+          data_begin = cur_data_begin;
+        }
+        // The different dex files currently can have different data sizes since
+        // the dex writer writes them one at a time into the shared section.:w
+        shared_data_size = std::max(shared_data_size, header.data_size_);
+      }
+      // If we are not updating the input vdex, write out the shared data section.
+      if (!update_input_vdex) {
+        const off_t existing_offset = out->Seek(0, kSeekCurrent);
+        if (static_cast<uint32_t>(existing_offset) != vdex_dex_shared_data_offset_) {
+          PLOG(ERROR) << "Expected offset " << vdex_dex_shared_data_offset_ << " but got "
+                      << existing_offset;
+          return false;
+        }
+        if (!out->WriteFully(data_begin, shared_data_size)) {
+          PLOG(ERROR) << "Failed to write shared data!";
+          return false;
+        }
+        if (!out->Flush()) {
+          PLOG(ERROR) << "Failed to flush after writing shared dex section.";
+          return false;
         }
       }
     }
@@ -3603,18 +3636,22 @@ bool OatWriter::LayoutAndWriteDexFile(OutputStream* out, OatDexFile* oat_dex_fil
   options.compact_dex_level_ = compact_dex_level_;
   options.update_checksum_ = true;
   DexLayout dex_layout(options, profile_compilation_info_, /*file*/ nullptr, /*header*/ nullptr);
-  dex_layout.ProcessDexFile(location.c_str(), dex_file.get(), 0, &dex_container_);
-  if (!WriteDexFile(out,
-                    oat_dex_file,
-                    dex_container_->GetMainSection()->Begin(),
-                    /* update_input_vdex */ false)) {
+  const uint8_t* dex_src = nullptr;
+  if (dex_layout.ProcessDexFile(location.c_str(), dex_file.get(), 0, &dex_container_, &error_msg)) {
+    oat_dex_file->dex_sections_layout_ = dex_layout.GetSections();
+    dex_src = dex_container_->GetMainSection()->Begin();
+  } else {
+    LOG(WARNING) << "Failed to run dex layout, reason:" << error_msg;
+    // Since we failed to convert the dex, just copy the input dex.
+    dex_src = dex_file->Begin();
+  }
+  if (!WriteDexFile(out, oat_dex_file, dex_src, /* update_input_vdex */ false)) {
     return false;
   }
   if (dex_container_ != nullptr) {
     // Clear the main section in case we write more data into the container.
     dex_container_->GetMainSection()->Clear();
   }
-  oat_dex_file->dex_sections_layout_ = dex_layout.GetSections();
   // Set the checksum of the new oat dex file to be the original file's checksum.
   oat_dex_file->dex_file_location_checksum_ = dex_file->GetLocationChecksum();
   return true;
@@ -3812,13 +3849,13 @@ bool OatWriter::OpenDexFiles(
     return true;
   }
 
-  if (only_contains_uncompressed_zip_entries_) {
+  if (!extract_dex_files_into_vdex_) {
     std::vector<std::unique_ptr<const DexFile>> dex_files;
     std::vector<std::unique_ptr<MemMap>> maps;
     for (OatDexFile& oat_dex_file : oat_dex_files_) {
       std::string error_msg;
-      MemMap* map = oat_dex_file.source_.GetZipEntry()->MapDirectlyFromFile(
-          oat_dex_file.dex_file_location_data_, &error_msg);
+      MemMap* map = oat_dex_file.source_.GetZipEntry()->MapDirectlyOrExtract(
+          oat_dex_file.dex_file_location_data_, "zipped dex", &error_msg);
       if (map == nullptr) {
         LOG(ERROR) << error_msg;
         return false;
@@ -4346,10 +4383,13 @@ bool OatWriter::OatClass::Write(OatWriter* oat_writer, OutputStream* out) const 
 debug::DebugInfo OatWriter::GetDebugInfo() const {
   debug::DebugInfo debug_info{};
   debug_info.compiled_methods = ArrayRef<const debug::MethodDebugInfo>(method_info_);
-  if (dex_files_ != nullptr) {
+  if (VdexWillContainDexFiles()) {
     for (auto dex_file : *dex_files_) {
       uint32_t offset = vdex_dex_files_offset_ + (dex_file->Begin() - (*dex_files_)[0]->Begin());
-      debug_info.dex_files.emplace(offset, dex_file);
+      uint32_t dex_file_offset = offset;
+      if (dex_file_offset != 0) {
+        debug_info.dex_files.emplace(dex_file_offset, dex_file);
+      }
     }
   }
   return debug_info;

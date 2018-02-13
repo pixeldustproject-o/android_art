@@ -169,6 +169,7 @@ class OatWriter {
   // This is generally the case, and should only be false for tests.
   // If `update_input_vdex` is true, then this method won't actually write the dex files,
   // and the compiler will just re-use the existing vdex file.
+  // If `copy_dex_files` is true, copy the input dex files into the vdex file.
   bool WriteAndOpenDexFiles(File* vdex_file,
                             OutputStream* oat_rodata,
                             InstructionSet instruction_set,
@@ -176,6 +177,7 @@ class OatWriter {
                             SafeMap<std::string, std::string>* key_value_store,
                             bool verify,
                             bool update_input_vdex,
+                            bool copy_dex_files,
                             /*out*/ std::vector<std::unique_ptr<MemMap>>* opened_dex_files_map,
                             /*out*/ std::vector<std::unique_ptr<const DexFile>>* opened_dex_files);
   bool WriteQuickeningInfo(OutputStream* vdex_out);
@@ -296,7 +298,10 @@ class OatWriter {
 
   // If `update_input_vdex` is true, then this method won't actually write the dex files,
   // and the compiler will just re-use the existing vdex file.
-  bool WriteDexFiles(OutputStream* out, File* file, bool update_input_vdex);
+  bool WriteDexFiles(OutputStream* out,
+                     File* file,
+                     bool update_input_vdex,
+                     bool copy_dex_files);
   bool WriteDexFile(OutputStream* out,
                     File* file,
                     OatDexFile* oat_dex_file,
@@ -357,6 +362,16 @@ class OatWriter {
 
   bool MayHaveCompiledMethods() const;
 
+  bool VdexWillContainDexFiles() const {
+    return dex_files_ != nullptr && extract_dex_files_into_vdex_;
+  }
+
+  // Find the address of the GcRoot<String> in the InternTable for a boot image string.
+  const uint8_t* LookupBootImageInternTableSlot(const DexFile& dex_file,
+                                                dex::StringIndex string_idx);
+  // Find the address of the ClassTable::TableSlot for a boot image class.
+  const uint8_t* LookupBootImageClassTableSlot(const DexFile& dex_file, dex::TypeIndex type_idx);
+
   enum class WriteState {
     kAddingDexFileSources,
     kPrepareLayout,
@@ -383,8 +398,8 @@ class OatWriter {
   const CompilerDriver* compiler_driver_;
   ImageWriter* image_writer_;
   const bool compiling_boot_image_;
-  // Whether the dex files being compiled are all uncompressed in the APK.
-  bool only_contains_uncompressed_zip_entries_;
+  // Whether the dex files being compiled are going to be extracted to the vdex.
+  bool extract_dex_files_into_vdex_;
 
   // note OatFile does not take ownership of the DexFiles
   const std::vector<const DexFile*>* dex_files_;
