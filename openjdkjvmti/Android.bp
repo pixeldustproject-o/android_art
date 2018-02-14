@@ -54,6 +54,7 @@ cc_defaults {
     header_libs: ["libopenjdkjvmti_headers"],
     shared_libs: [
         "libbase",
+        "libdexfile",
         "libnativehelper",
     ],
 }
@@ -65,6 +66,7 @@ art_cc_library {
         "libart",
         "libart-compiler",
         "libart-dexlayout",
+        "libdexfile",
     ],
 }
 
@@ -78,5 +80,6 @@ art_cc_library {
         "libartd",
         "libartd-compiler",
         "libartd-dexlayout",
+        "libdexfiled",
     ],
 }

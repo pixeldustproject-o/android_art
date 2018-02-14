@@ -433,7 +433,7 @@ static bool AlwaysThrows(CompilerDriver* const compiler_driver, ArtMethod* metho
     return false;
   }
   // Skip native methods, methods with try blocks, and methods that are too large.
-  CodeItemDataAccessor accessor(method);
+  CodeItemDataAccessor accessor(method->DexInstructionData());
   if (!accessor.HasCodeItem() ||
       accessor.TriesSize() != 0 ||
       accessor.InsnsSizeInCodeUnits() > kMaximumNumberOfTotalInstructions) {
@@ -1457,7 +1457,7 @@ bool HInliner::TryBuildAndInline(HInvoke* invoke_instruction,
 
   bool same_dex_file = IsSameDexFile(*outer_compilation_unit_.GetDexFile(), *method->GetDexFile());
 
-  CodeItemDataAccessor accessor(method);
+  CodeItemDataAccessor accessor(method->DexInstructionData());
 
   if (!accessor.HasCodeItem()) {
     LOG_FAIL_NO_STAT()
@@ -1732,7 +1732,7 @@ bool HInliner::TryBuildAndInlineHelper(HInvoke* invoke_instruction,
   const DexFile::CodeItem* code_item = resolved_method->GetCodeItem();
   const DexFile& callee_dex_file = *resolved_method->GetDexFile();
   uint32_t method_index = resolved_method->GetDexMethodIndex();
-  CodeItemDebugInfoAccessor code_item_accessor(resolved_method);
+  CodeItemDebugInfoAccessor code_item_accessor(resolved_method->DexInstructionDebugInfo());
   ClassLinker* class_linker = caller_compilation_unit_.GetClassLinker();
   Handle<mirror::DexCache> dex_cache = NewHandleIfDifferent(resolved_method->GetDexCache(),
                                                             caller_compilation_unit_.GetDexCache(),

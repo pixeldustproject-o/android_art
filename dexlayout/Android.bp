@@ -26,14 +26,19 @@ art_cc_defaults {
         "dex_writer.cc",
     ],
     export_include_dirs: ["."],
-    shared_libs: ["libbase"],
+    shared_libs: [
+        "libbase",
+    ],
     static_libs: ["libz"],
 }
 
 art_cc_library {
     name: "libart-dexlayout",
     defaults: ["libart-dexlayout-defaults"],
-    shared_libs: ["libart"],
+    shared_libs: [
+        "libart",
+        "libdexfile",
+    ],
 }
 
 art_cc_library {
@@ -42,7 +47,10 @@ art_cc_library {
       "libart-dexlayout-defaults",
       "art_debug_defaults",
     ],
-    shared_libs: ["libartd"],
+    shared_libs: [
+        "libartd",
+        "libdexfiled",
+    ],
 }
 
 art_cc_binary {

@@ -250,6 +250,7 @@ art_cc_library {
     },
     shared_libs: [
         "libart",
+        "libdexfile",
     ],
 }
 
@@ -289,6 +290,7 @@ art_cc_library {
     },
     shared_libs: [
         "libartd",
+        "libdexfiled",
     ],
 }
 

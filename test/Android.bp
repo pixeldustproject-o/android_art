@@ -62,6 +62,7 @@ art_cc_defaults {
         "libvixld-arm",
         "libvixld-arm64",
         "libart-gtest",
+        "libdexfiled",
 
         "libbase",
         "libicuuc",
@@ -130,6 +131,7 @@ art_cc_defaults {
     shared_libs: [
         "libartd",
         "libartd-compiler",
+        "libdexfiled",
     ],
     static_libs: [
         "libgtest",
@@ -174,6 +176,7 @@ art_cc_library {
     shared_libs: [
         "libartd",
         "libartd-compiler",
+        "libdexfiled",
         "libbase",
         "libbacktrace",
     ],
@@ -203,6 +206,7 @@ cc_defaults {
     ],
     shared_libs: [
         "libbacktrace",
+        "libdexfile",
         "libbase",
         "libnativehelper",
     ],
@@ -336,7 +340,10 @@ art_cc_defaults {
 art_cc_test_library {
     name: "libtiagent",
     defaults: ["libtiagent-defaults"],
-    shared_libs: ["libart"],
+    shared_libs: [
+        "libart",
+        "libdexfile",
+    ],
 }
 
 art_cc_test_library {
@@ -345,7 +352,10 @@ art_cc_test_library {
         "art_debug_defaults",
         "libtiagent-defaults",
     ],
-    shared_libs: ["libartd"],
+    shared_libs: [
+        "libartd",
+        "libdexfiled",
+    ],
 }
 
 art_cc_test_library {
@@ -427,7 +437,10 @@ cc_defaults {
 art_cc_test_library {
     name: "libarttest",
     defaults: ["libarttest-defaults"],
-    shared_libs: ["libart"],
+    shared_libs: [
+        "libart",
+        "libdexfile",
+    ],
 }
 
 art_cc_test_library {
@@ -436,7 +449,10 @@ art_cc_test_library {
         "art_debug_defaults",
         "libarttest-defaults",
     ],
-    shared_libs: ["libartd"],
+    shared_libs: [
+        "libartd",
+        "libdexfiled",
+    ],
 }
 
 art_cc_test_library {

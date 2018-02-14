@@ -32,10 +32,12 @@
 #include "base/time_utils.h"
 #include "class_linker-inl.h"
 #include "class_linker.h"
+#include "dex/descriptors_names.h"
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_annotations.h"
 #include "dex/dex_file_types.h"
 #include "dex/dex_instruction.h"
+#include "dex/utf.h"
 #include "entrypoints/runtime_asm_entrypoints.h"
 #include "gc/accounting/card_table-inl.h"
 #include "gc/allocation_record.h"
@@ -65,7 +67,6 @@
 #include "scoped_thread_state_change-inl.h"
 #include "stack.h"
 #include "thread_list.h"
-#include "utf.h"
 #include "well_known_classes.h"
 
 namespace art {
@@ -1494,7 +1495,7 @@ static uint32_t MangleAccessFlags(uint32_t accessFlags) {
  */
 static uint16_t MangleSlot(uint16_t slot, ArtMethod* m)
     REQUIRES_SHARED(Locks::mutator_lock_) {
-  CodeItemDataAccessor accessor(m);
+  CodeItemDataAccessor accessor(m->DexInstructionData());
   if (!accessor.HasCodeItem()) {
     // We should not get here for a method without code (native, proxy or abstract). Log it and
     // return the slot as is since all registers are arguments.
@@ -1525,7 +1526,7 @@ static size_t GetMethodNumArgRegistersIncludingThis(ArtMethod* method)
  */
 static uint16_t DemangleSlot(uint16_t slot, ArtMethod* m, JDWP::JdwpError* error)
     REQUIRES_SHARED(Locks::mutator_lock_) {
-  CodeItemDataAccessor accessor(m);
+  CodeItemDataAccessor accessor(m->DexInstructionData());
   if (!accessor.HasCodeItem()) {
     // We should not get here for a method without code (native, proxy or abstract). Log it and
     // return the slot as is since all registers are arguments.
@@ -1636,7 +1637,7 @@ void Dbg::OutputLineTable(JDWP::RefTypeId, JDWP::MethodId method_id, JDWP::Expan
     }
   };
   ArtMethod* m = FromMethodId(method_id);
-  CodeItemDebugInfoAccessor accessor(m);
+  CodeItemDebugInfoAccessor accessor(m->DexInstructionDebugInfo());
   uint64_t start, end;
   if (!accessor.HasCodeItem()) {
     DCHECK(m->IsNative() || m->IsProxyMethod());
@@ -1702,7 +1703,7 @@ void Dbg::OutputVariableTable(JDWP::RefTypeId, JDWP::MethodId method_id, bool wi
     }
   };
   ArtMethod* m = FromMethodId(method_id);
-  CodeItemDebugInfoAccessor accessor(m);
+  CodeItemDebugInfoAccessor accessor(m->DexInstructionDebugInfo());
 
   // arg_count considers doubles and longs to take 2 units.
   // variable_count considers everything to take 1 unit.
@@ -1752,7 +1753,7 @@ JDWP::JdwpError Dbg::GetBytecodes(JDWP::RefTypeId, JDWP::MethodId method_id,
   if (m == nullptr) {
     return JDWP::ERR_INVALID_METHODID;
   }
-  CodeItemDataAccessor accessor(m);
+  CodeItemDataAccessor accessor(m->DexInstructionData());
   size_t byte_count = accessor.InsnsSizeInCodeUnits() * 2;
   const uint8_t* begin = reinterpret_cast<const uint8_t*>(accessor.Insns());
   const uint8_t* end = begin + byte_count;
@@ -3869,7 +3870,7 @@ JDWP::JdwpError Dbg::ConfigureStep(JDWP::ObjectId thread_id, JDWP::JdwpStepSize 
   // Note: if the thread is not running Java code (pure native thread), there is no "current"
   // method on the stack (and no line number either).
   if (m != nullptr && !m->IsNative()) {
-    CodeItemDebugInfoAccessor accessor(m);
+    CodeItemDebugInfoAccessor accessor(m->DexInstructionDebugInfo());
     DebugCallbackContext context(single_step_control, line_number, accessor.InsnsSizeInCodeUnits());
     m->GetDexFile()->DecodeDebugPositionInfo(accessor.DebugInfoOffset(),
                                              DebugCallbackContext::Callback,

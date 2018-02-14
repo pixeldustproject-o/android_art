@@ -22,8 +22,8 @@
 #include <string>
 #include <vector>
 
-#include "dex_file_loader.h"
 #include "base/macros.h"
+#include "dex/dex_file_loader.h"
 
 namespace art {
 
@@ -68,7 +68,7 @@ class ArtDexFileLoader : public DexFileLoader {
                                       std::unique_ptr<MemMap> mem_map,
                                       bool verify,
                                       bool verify_checksum,
-                                      std::string* error_msg) const OVERRIDE;
+                                      std::string* error_msg) const;
 
   // Opens all .dex files found in the file, guessing the container format based on file extension.
   bool Open(const char* filename,
@@ -76,14 +76,14 @@ class ArtDexFileLoader : public DexFileLoader {
             bool verify,
             bool verify_checksum,
             std::string* error_msg,
-            std::vector<std::unique_ptr<const DexFile>>* dex_files) const OVERRIDE;
+            std::vector<std::unique_ptr<const DexFile>>* dex_files) const;
 
   // Open a single dex file from an fd. This function closes the fd.
   std::unique_ptr<const DexFile> OpenDex(int fd,
                                          const std::string& location,
                                          bool verify,
                                          bool verify_checksum,
-                                         std::string* error_msg) const OVERRIDE;
+                                         std::string* error_msg) const;
 
   // Opens dex files from within a .jar, .zip, or .apk file
   bool OpenZip(int fd,
@@ -91,14 +91,14 @@ class ArtDexFileLoader : public DexFileLoader {
                bool verify,
                bool verify_checksum,
                std::string* error_msg,
-               std::vector<std::unique_ptr<const DexFile>>* dex_files) const OVERRIDE;
+               std::vector<std::unique_ptr<const DexFile>>* dex_files) const;
 
  private:
   std::unique_ptr<const DexFile> OpenFile(int fd,
                                           const std::string& location,
                                           bool verify,
                                           bool verify_checksum,
-                                          std::string* error_msg) const OVERRIDE;
+                                          std::string* error_msg) const;
 
   // Open all classesXXX.dex files from a zip archive.
   bool OpenAllDexFilesFromZip(const ZipArchive& zip_archive,
@@ -106,8 +106,7 @@ class ArtDexFileLoader : public DexFileLoader {
                               bool verify,
                               bool verify_checksum,
                               std::string* error_msg,
-                              std::vector<std::unique_ptr<const DexFile>>* dex_files)
-      const OVERRIDE;
+                              std::vector<std::unique_ptr<const DexFile>>* dex_files) const;
 
   // Opens .dex file from the entry_name in a zip archive. error_code is undefined when non-null
   // return.
@@ -117,7 +116,7 @@ class ArtDexFileLoader : public DexFileLoader {
                                                        bool verify,
                                                        bool verify_checksum,
                                                        std::string* error_msg,
-                                                       ZipOpenErrorCode* error_code) const OVERRIDE;
+                                                       ZipOpenErrorCode* error_code) const;
 };
 
 }  // namespace art

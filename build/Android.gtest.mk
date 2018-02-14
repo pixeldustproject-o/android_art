@@ -280,6 +280,7 @@ ART_TEST_MODULES := \
     art_dexlist_tests \
     art_dexoptanalyzer_tests \
     art_imgdiag_tests \
+    art_libdexfile_tests \
     art_oatdump_tests \
     art_patchoat_tests \
     art_profman_tests \

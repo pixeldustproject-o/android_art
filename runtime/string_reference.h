@@ -23,7 +23,7 @@
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_reference.h"
 #include "dex/dex_file_types.h"
-#include "utf-inl.h"
+#include "dex/utf-inl.h"
 
 namespace art {
 

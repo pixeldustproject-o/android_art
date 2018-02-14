@@ -21,8 +21,8 @@
 
 #include "base/bit_utils.h"
 #include "dex/dex_file-inl.h"
+#include "dex/utf-inl.h"
 #include "leb128.h"
-#include "utf-inl.h"
 #include "utils.h"
 
 namespace art {

@@ -75,8 +75,6 @@ art_cc_defaults {
     },
     generated_sources: ["art_dex2oat_operator_srcs"],
     shared_libs: [
-        "libart-compiler",
-        "libart-dexlayout",
         "libbase",
         "liblz4",
         "liblzma",
@@ -111,6 +109,7 @@ art_cc_static_library {
     defaults: ["libart-dex2oat-defaults"],
     shared_libs: [
         "libart-compiler",
+        "libart-dexlayout",
         "libart",
     ],
 }
@@ -123,6 +122,7 @@ art_cc_static_library {
     ],
     shared_libs: [
         "libartd-compiler",
+        "libartd-dexlayout",
         "libartd",
     ],
 }
@@ -173,6 +173,7 @@ art_cc_binary {
         "libart-compiler",
         "libart-dexlayout",
         "libart",
+        "libdexfile",
         "libbase",
         "liblz4",
         "libsigchain",
@@ -192,6 +193,7 @@ art_cc_binary {
         "libartd-compiler",
         "libartd-dexlayout",
         "libartd",
+        "libdexfiled",
         "libbase",
         "liblz4",
         "libsigchain",
@@ -224,6 +226,7 @@ art_cc_binary {
         "libart-compiler",
         "libart-dexlayout",
         "libart",
+        "libdexfile",
         "libvixl-arm",
         "libvixl-arm64",
     ] + art_static_dependencies,
@@ -255,6 +258,7 @@ art_cc_binary {
         "libartd-compiler",
         "libartd-dexlayout",
         "libartd",
+        "libdexfiled",
         "libvixld-arm",
         "libvixld-arm64",
     ] + art_static_dependencies,

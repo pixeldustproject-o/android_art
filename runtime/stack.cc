@@ -155,7 +155,7 @@ mirror::Object* StackVisitor::GetThisObject() const {
       return cur_shadow_frame_->GetVRegReference(0);
     }
   } else {
-    CodeItemDataAccessor accessor(m);
+    CodeItemDataAccessor accessor(m->DexInstructionData());
     if (!accessor.HasCodeItem()) {
       UNIMPLEMENTED(ERROR) << "Failed to determine this object of abstract or proxy method: "
           << ArtMethod::PrettyMethod(m);
@@ -226,7 +226,7 @@ bool StackVisitor::GetVRegFromOptimizedCode(ArtMethod* m, uint16_t vreg, VRegKin
   DCHECK_EQ(m, GetMethod());
   // Can't be null or how would we compile its instructions?
   DCHECK(m->GetCodeItem() != nullptr) << m->PrettyMethod();
-  CodeItemDataAccessor accessor(m);
+  CodeItemDataAccessor accessor(m->DexInstructionData());
   uint16_t number_of_dex_registers = accessor.RegistersSize();
   DCHECK_LT(vreg, number_of_dex_registers);
   const OatQuickMethodHeader* method_header = GetCurrentOatQuickMethodHeader();
@@ -396,7 +396,7 @@ bool StackVisitor::SetVReg(ArtMethod* m,
                            uint16_t vreg,
                            uint32_t new_value,
                            VRegKind kind) {
-  CodeItemDataAccessor accessor(m);
+  CodeItemDataAccessor accessor(m->DexInstructionData());
   if (!accessor.HasCodeItem()) {
     return false;
   }
@@ -433,7 +433,7 @@ bool StackVisitor::SetVRegPair(ArtMethod* m,
     LOG(FATAL) << "Expected long or double: kind_lo=" << kind_lo << ", kind_hi=" << kind_hi;
     UNREACHABLE();
   }
-  CodeItemDataAccessor accessor(m);
+  CodeItemDataAccessor accessor(m->DexInstructionData());
   if (!accessor.HasCodeItem()) {
     return false;
   }
