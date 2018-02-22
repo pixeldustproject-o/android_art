@@ -7879,8 +7879,8 @@ ArtMethod* ClassLinker::FindResolvedMethod(ObjPtr<mirror::Class> klass,
     // In case of jmvti, the dex file gets verified before being registered, so first
     // check if it's registered before checking class tables.
     const DexFile& dex_file = *dex_cache->GetDexFile();
-    CHECK(!IsDexFileRegistered(Thread::Current(), dex_file) ||
-          FindClassTable(Thread::Current(), dex_cache) == ClassTableForClassLoader(class_loader))
+    DCHECK(!IsDexFileRegistered(Thread::Current(), dex_file) ||
+           FindClassTable(Thread::Current(), dex_cache) == ClassTableForClassLoader(class_loader))
         << "DexFile referrer: " << dex_file.GetLocation();
     // Be a good citizen and update the dex cache to speed subsequent calls.
     dex_cache->SetResolvedMethod(method_idx, resolved, image_pointer_size_);
@@ -7919,8 +7919,11 @@ ArtMethod* ClassLinker::ResolveMethod(uint32_t method_idx,
     // We have a valid method from the DexCache but we need to perform ICCE and IAE checks.
     DCHECK(resolved->GetDeclaringClassUnchecked() != nullptr) << resolved->GetDexMethodIndex();
     klass = LookupResolvedType(method_id.class_idx_, dex_cache.Get(), class_loader.Get());
-    CHECK(klass != nullptr) << resolved->PrettyMethod() << " " << resolved << " "
-                            << resolved->GetAccessFlags();
+    if (UNLIKELY(klass == nullptr)) {
+      // We normaly should not end up here. However the verifier currently doesn't guarantee
+      // the invariant of having the klass in the class table. b/73760543
+      klass = ResolveType(method_id.class_idx_, dex_cache, class_loader);
+    }
   } else {
     // The method was not in the DexCache, resolve the declaring class.
     klass = ResolveType(method_id.class_idx_, dex_cache, class_loader);
