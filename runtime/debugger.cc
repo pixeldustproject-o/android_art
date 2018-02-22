@@ -34,6 +34,7 @@
 #include "class_linker.h"
 #include "dex_file-inl.h"
 #include "dex_file_annotations.h"
+#include "dex_file_types.h"
 #include "dex_instruction.h"
 #include "entrypoints/runtime_asm_entrypoints.h"
 #include "gc/accounting/card_table-inl.h"
@@ -238,7 +239,7 @@ class DebugInstrumentationListener FINAL : public instrumentation::Instrumentati
     Dbg::PostFieldModificationEvent(method, dex_pc, this_object.Get(), field, &field_value);
   }
 
-  void ExceptionCaught(Thread* thread ATTRIBUTE_UNUSED,
+  void ExceptionThrown(Thread* thread ATTRIBUTE_UNUSED,
                        Handle<mirror::Throwable> exception_object)
       OVERRIDE REQUIRES_SHARED(Locks::mutator_lock_) {
     Dbg::PostException(exception_object.Get());
@@ -260,6 +261,18 @@ class DebugInstrumentationListener FINAL : public instrumentation::Instrumentati
       OVERRIDE REQUIRES_SHARED(Locks::mutator_lock_) {
     LOG(ERROR) << "Unexpected invoke event in debugger " << ArtMethod::PrettyMethod(method)
                << " " << dex_pc;
+  }
+
+  // TODO Might be worth it to post ExceptionCatch event.
+  void ExceptionHandled(Thread* thread ATTRIBUTE_UNUSED,
+                        Handle<mirror::Throwable> throwable ATTRIBUTE_UNUSED) OVERRIDE {
+    LOG(ERROR) << "Unexpected exception handled event in debugger";
+  }
+
+  // TODO Might be worth it to implement this.
+  void WatchedFramePop(Thread* thread ATTRIBUTE_UNUSED,
+                       const ShadowFrame& frame ATTRIBUTE_UNUSED) OVERRIDE {
+    LOG(ERROR) << "Unexpected WatchedFramePop event in debugger";
   }
 
  private:
@@ -311,6 +324,7 @@ static Dbg::HpsgWhat gDdmNhsgWhat;
 bool Dbg::gDebuggerActive = false;
 bool Dbg::gDisposed = false;
 ObjectRegistry* Dbg::gRegistry = nullptr;
+DebuggerActiveMethodInspectionCallback Dbg::gDebugActiveCallback;
 
 // Deoptimization support.
 std::vector<DeoptimizationRequest> Dbg::deoptimization_requests_;
@@ -327,6 +341,10 @@ uint32_t Dbg::instrumentation_events_ = 0;
 
 Dbg::DbgThreadLifecycleCallback Dbg::thread_lifecycle_callback_;
 Dbg::DbgClassLoadCallback Dbg::class_load_callback_;
+
+bool DebuggerActiveMethodInspectionCallback::IsMethodBeingInspected(ArtMethod* m ATTRIBUTE_UNUSED) {
+  return Dbg::IsDebuggerActive();
+}
 
 // Breakpoints.
 static std::vector<Breakpoint> gBreakpoints GUARDED_BY(Locks::breakpoint_lock_);
@@ -639,6 +657,7 @@ void Dbg::GoActive() {
   }
   instrumentation_events_ = 0;
   gDebuggerActive = true;
+  Runtime::Current()->GetRuntimeCallbacks()->AddMethodInspectionCallback(&gDebugActiveCallback);
   LOG(INFO) << "Debugger is active";
 }
 
@@ -676,6 +695,8 @@ void Dbg::Disconnected() {
         runtime->GetInstrumentation()->DisableDeoptimization(kDbgInstrumentationKey);
       }
       gDebuggerActive = false;
+      Runtime::Current()->GetRuntimeCallbacks()->RemoveMethodInspectionCallback(
+          &gDebugActiveCallback);
     }
   }
 
@@ -2205,6 +2226,8 @@ JDWP::JdwpThreadStatus Dbg::ToJdwpThreadStatus(ThreadState state) {
     case kTerminated:
       return JDWP::TS_ZOMBIE;
     case kTimedWaiting:
+    case kWaitingForTaskProcessor:
+    case kWaitingForLockInflation:
     case kWaitingForCheckPointsToRun:
     case kWaitingForDebuggerSend:
     case kWaitingForDebuggerSuspension:
@@ -2960,8 +2983,8 @@ class CatchLocationFinder : public StackVisitor {
       this_at_throw_(handle_scope_.NewHandle<mirror::Object>(nullptr)),
       catch_method_(nullptr),
       throw_method_(nullptr),
-      catch_dex_pc_(DexFile::kDexNoIndex),
-      throw_dex_pc_(DexFile::kDexNoIndex) {
+      catch_dex_pc_(dex::kDexNoIndex),
+      throw_dex_pc_(dex::kDexNoIndex) {
   }
 
   bool VisitFrame() OVERRIDE REQUIRES_SHARED(Locks::mutator_lock_) {
@@ -2983,13 +3006,13 @@ class CatchLocationFinder : public StackVisitor {
       throw_dex_pc_ = dex_pc;
     }
 
-    if (dex_pc != DexFile::kDexNoIndex) {
+    if (dex_pc != dex::kDexNoIndex) {
       StackHandleScope<1> hs(GetThread());
       uint32_t found_dex_pc;
       Handle<mirror::Class> exception_class(hs.NewHandle(exception_->GetClass()));
       bool unused_clear_exception;
       found_dex_pc = method->FindCatchBlock(exception_class, dex_pc, &unused_clear_exception);
-      if (found_dex_pc != DexFile::kDexNoIndex) {
+      if (found_dex_pc != dex::kDexNoIndex) {
         catch_method_ = method;
         catch_dex_pc_ = found_dex_pc;
         return false;  // End stack walk.
@@ -3145,7 +3168,7 @@ size_t* Dbg::GetReferenceCounterForEvent(uint32_t instrumentation_event) {
       return &field_read_event_ref_count_;
     case instrumentation::Instrumentation::kFieldWritten:
       return &field_write_event_ref_count_;
-    case instrumentation::Instrumentation::kExceptionCaught:
+    case instrumentation::Instrumentation::kExceptionThrown:
       return &exception_catch_event_ref_count_;
     default:
       return nullptr;
@@ -4008,8 +4031,8 @@ JDWP::JdwpError Dbg::PrepareInvokeMethod(uint32_t request_id, JDWP::ObjectId thr
 
         if (shorty[i + 1] == 'L') {
           // Did we really get an argument of an appropriate reference type?
-          mirror::Class* parameter_type =
-              m->GetClassFromTypeIndex(types->GetTypeItem(i).type_idx_, true /* resolve */);
+          ObjPtr<mirror::Class> parameter_type =
+              m->ResolveClassFromTypeIndex(types->GetTypeItem(i).type_idx_);
           mirror::Object* argument = gRegistry->Get<mirror::Object*>(arg_values[i], &error);
           if (error != JDWP::ERR_NONE) {
             return JDWP::ERR_INVALID_OBJECT;

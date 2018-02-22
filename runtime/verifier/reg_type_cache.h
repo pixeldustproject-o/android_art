@@ -28,8 +28,8 @@
 
 namespace art {
 namespace mirror {
-  class Class;
-  class ClassLoader;
+class Class;
+class ClassLoader;
 }  // namespace mirror
 class ScopedArenaAllocator;
 class StringPiece;
@@ -48,6 +48,7 @@ class ImpreciseConstType;
 class IntegerType;
 class LongHiType;
 class LongLoType;
+class MethodVerifier;
 class PreciseConstType;
 class PreciseReferenceType;
 class RegType;
@@ -60,7 +61,7 @@ static constexpr size_t kDefaultArenaBitVectorBytes = 8;
 
 class RegTypeCache {
  public:
-  explicit RegTypeCache(bool can_load_classes, ScopedArenaAllocator& arena);
+  explicit RegTypeCache(bool can_load_classes, ScopedArenaAllocator& allocator);
   ~RegTypeCache();
   static void Init() REQUIRES_SHARED(Locks::mutator_lock_) {
     if (!RegTypeCache::primitive_initialized_) {
@@ -125,6 +126,8 @@ class RegTypeCache {
 
   const PreciseReferenceType& JavaLangClass() REQUIRES_SHARED(Locks::mutator_lock_);
   const PreciseReferenceType& JavaLangString() REQUIRES_SHARED(Locks::mutator_lock_);
+  const PreciseReferenceType& JavaLangInvokeMethodHandle() REQUIRES_SHARED(Locks::mutator_lock_);
+  const PreciseReferenceType& JavaLangInvokeMethodType() REQUIRES_SHARED(Locks::mutator_lock_);
   const RegType& JavaLangThrowable(bool precise) REQUIRES_SHARED(Locks::mutator_lock_);
   const RegType& JavaLangObject(bool precise) REQUIRES_SHARED(Locks::mutator_lock_);
 
@@ -198,7 +201,7 @@ class RegTypeCache {
   const bool can_load_classes_;
 
   // Arena allocator.
-  ScopedArenaAllocator& arena_;
+  ScopedArenaAllocator& allocator_;
 
   DISALLOW_COPY_AND_ASSIGN(RegTypeCache);
 };

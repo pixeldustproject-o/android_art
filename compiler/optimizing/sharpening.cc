@@ -21,10 +21,9 @@
 #include "base/enums.h"
 #include "class_linker.h"
 #include "code_generator.h"
+#include "driver/compiler_driver.h"
 #include "driver/compiler_options.h"
 #include "driver/dex_compilation_unit.h"
-#include "utils/dex_cache_arrays_layout-inl.h"
-#include "driver/compiler_driver.h"
 #include "gc/heap.h"
 #include "gc/space/image_space.h"
 #include "handle_scope-inl.h"
@@ -33,6 +32,7 @@
 #include "nodes.h"
 #include "runtime.h"
 #include "scoped_thread_state_change-inl.h"
+#include "utils/dex_cache_arrays_layout-inl.h"
 
 namespace art {
 
@@ -205,11 +205,15 @@ HLoadClass::LoadKind HSharpening::ComputeLoadClassKind(HLoadClass* load_class,
           // TODO(ngeoffray): Generate HDeoptimize instead.
           desired_load_kind = HLoadClass::LoadKind::kRuntimeCall;
         }
-      } else if (is_in_boot_image && !codegen->GetCompilerOptions().GetCompilePic()) {
-        // AOT app compilation. Check if the class is in the boot image.
-        desired_load_kind = HLoadClass::LoadKind::kBootImageAddress;
+      } else if (is_in_boot_image) {
+        // AOT app compilation, boot image class.
+        if (codegen->GetCompilerOptions().GetCompilePic()) {
+          desired_load_kind = HLoadClass::LoadKind::kBootImageClassTable;
+        } else {
+          desired_load_kind = HLoadClass::LoadKind::kBootImageAddress;
+        }
       } else {
-        // Not JIT and either the klass is not in boot image or we are compiling in PIC mode.
+        // Not JIT and the klass is not in boot image.
         desired_load_kind = HLoadClass::LoadKind::kBssEntry;
       }
     }
@@ -278,10 +282,12 @@ void HSharpening::ProcessLoadString(HLoadString* load_string) {
     } else {
       // AOT app compilation. Try to lookup the string without allocating if not found.
       string = class_linker->LookupString(dex_file, string_index, dex_cache.Get());
-      if (string != nullptr &&
-          runtime->GetHeap()->ObjectIsInBootImageSpace(string) &&
-          !codegen_->GetCompilerOptions().GetCompilePic()) {
-        desired_load_kind = HLoadString::LoadKind::kBootImageAddress;
+      if (string != nullptr && runtime->GetHeap()->ObjectIsInBootImageSpace(string)) {
+        if (codegen_->GetCompilerOptions().GetCompilePic()) {
+          desired_load_kind = HLoadString::LoadKind::kBootImageInternTable;
+        } else {
+          desired_load_kind = HLoadString::LoadKind::kBootImageAddress;
+        }
       } else {
         desired_load_kind = HLoadString::LoadKind::kBssEntry;
       }

@@ -21,7 +21,7 @@
 #include "arch/instruction_set_features.h"
 #include "base/array_ref.h"
 #include "base/macros.h"
-#include "compiled_method.h"
+#include "compiled_method-inl.h"
 #include "dex/verification_results.h"
 #include "driver/compiler_driver.h"
 #include "driver/compiler_options.h"
@@ -194,8 +194,7 @@ class RelativePatcherTest : public testing::Test {
     // Sanity check: original code size must match linked_code.size().
     size_t idx = 0u;
     for (auto ref : compiled_method_refs_) {
-      if (ref.dex_file == method_ref.dex_file &&
-          ref.dex_method_index == method_ref.dex_method_index) {
+      if (ref == method_ref) {
         break;
       }
       ++idx;
@@ -253,8 +252,8 @@ class RelativePatcherTest : public testing::Test {
   }
 
   // Map method reference to assinged offset.
-  // Wrap the map in a class implementing linker::RelativePatcherTargetProvider.
-  class MethodOffsetMap FINAL : public linker::RelativePatcherTargetProvider {
+  // Wrap the map in a class implementing RelativePatcherTargetProvider.
+  class MethodOffsetMap FINAL : public RelativePatcherTargetProvider {
    public:
     std::pair<bool, uint32_t> FindMethodOffset(MethodReference ref) OVERRIDE {
       auto it = map.find(ref);
@@ -264,7 +263,7 @@ class RelativePatcherTest : public testing::Test {
         return std::pair<bool, uint32_t>(true, it->second);
       }
     }
-    SafeMap<MethodReference, uint32_t, MethodReferenceComparator> map;
+    SafeMap<MethodReference, uint32_t> map;
   };
 
   static const uint32_t kTrampolineSize = 4u;

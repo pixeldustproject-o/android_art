@@ -40,24 +40,31 @@ namespace art {
 
 namespace gc {
 namespace space {
-  class ImageSpace;
+class ImageSpace;
 }  // namespace space
 }  // namespace gc
+
+namespace linker {
+struct CompilationHelper;
+class ImageWriter;
+class OatWriter;
+}  // namespace linker
+
 namespace mirror {
-  class ClassLoader;
-  class DexCache;
-  class DexCachePointerArray;
-  class DexCacheMethodHandlesTest_Open_Test;
-  class DexCacheTest_Open_Test;
-  class IfTable;
-  class MethodHandle;
-  class MethodHandlesLookup;
-  class MethodType;
-  template<class T> class ObjectArray;
-  class StackTraceElement;
-  template <typename T> struct NativeDexCachePair;
-  using MethodDexCachePair = NativeDexCachePair<ArtMethod>;
-  using MethodDexCacheType = std::atomic<MethodDexCachePair>;
+class ClassLoader;
+class DexCache;
+class DexCachePointerArray;
+class DexCacheMethodHandlesTest_Open_Test;
+class DexCacheTest_Open_Test;
+class IfTable;
+class MethodHandle;
+class MethodHandlesLookup;
+class MethodType;
+template<class T> class ObjectArray;
+class StackTraceElement;
+template <typename T> struct NativeDexCachePair;
+using MethodDexCachePair = NativeDexCachePair<ArtMethod>;
+using MethodDexCacheType = std::atomic<MethodDexCachePair>;
 }  // namespace mirror
 
 class ClassHierarchyAnalysis;
@@ -357,17 +364,23 @@ class ClassLinker {
 
   // Resolve a method type with a given ID from the DexFile, storing
   // the result in the DexCache.
-  mirror::MethodType* ResolveMethodType(const DexFile& dex_file,
+  mirror::MethodType* ResolveMethodType(Thread* self,
+                                        const DexFile& dex_file,
                                         uint32_t proto_idx,
                                         Handle<mirror::DexCache> dex_cache,
                                         Handle<mirror::ClassLoader> class_loader)
       REQUIRES_SHARED(Locks::mutator_lock_)
       REQUIRES(!Locks::dex_lock_, !Roles::uninterruptible_);
 
+  mirror::MethodType* ResolveMethodType(Thread* self, uint32_t proto_idx, ArtMethod* referrer)
+      REQUIRES_SHARED(Locks::mutator_lock_);
+
   // Resolve a method handle with a given ID from the DexFile. The
   // result is not cached in the DexCache as the instance will only be
   // used once in most circumstances.
-  mirror::MethodHandle* ResolveMethodHandle(uint32_t method_handle_idx, ArtMethod* referrer)
+  mirror::MethodHandle* ResolveMethodHandle(Thread* self,
+                                            uint32_t method_handle_idx,
+                                            ArtMethod* referrer)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Returns true on success, false if there's an exception pending.
@@ -395,9 +408,6 @@ class ClassLinker {
       REQUIRES_SHARED(Locks::mutator_lock_);
   ObjPtr<mirror::DexCache> RegisterDexFile(const DexFile& dex_file,
                                            ObjPtr<mirror::ClassLoader> class_loader)
-      REQUIRES(!Locks::dex_lock_)
-      REQUIRES_SHARED(Locks::mutator_lock_);
-  void RegisterBootClassPathDexFile(const DexFile& dex_file, ObjPtr<mirror::DexCache> dex_cache)
       REQUIRES(!Locks::dex_lock_)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
@@ -482,9 +492,6 @@ class ClassLinker {
       REQUIRES_SHARED(Locks::mutator_lock_);
   std::string GetDescriptorForProxy(ObjPtr<mirror::Class> proxy_class)
       REQUIRES_SHARED(Locks::mutator_lock_);
-  ArtMethod* FindMethodForProxy(ArtMethod* proxy_method)
-      REQUIRES(!Locks::dex_lock_)
-      REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Get the oat code for a method when its class isn't yet initialized.
   const void* GetQuickOatCodeFor(ArtMethod* method)
@@ -516,10 +523,6 @@ class ClassLinker {
   InternTable* GetInternTable() const {
     return intern_table_;
   }
-
-  // Set the entrypoints up for method to the given code.
-  void SetEntryPointsToCompiledCode(ArtMethod* method, const void* method_code) const
-      REQUIRES_SHARED(Locks::mutator_lock_);
 
   // Set the entrypoints up for method to the enter the interpreter.
   void SetEntryPointsToInterpreter(ArtMethod* method) const
@@ -685,7 +688,6 @@ class ClassLinker {
     DexCacheData()
         : weak_root(nullptr),
           dex_file(nullptr),
-          resolved_methods(nullptr),
           class_table(nullptr) { }
 
     // Check if the data is valid.
@@ -696,11 +698,9 @@ class ClassLinker {
     // Weak root to the DexCache. Note: Do not decode this unnecessarily or else class unloading may
     // not work properly.
     jweak weak_root;
-    // The following two fields are caches to the DexCache's fields and here to avoid unnecessary
-    // jweak decode that triggers read barriers (and mark them alive unnecessarily and mess with
-    // class unloading.)
+    // The following field caches the DexCache's field here to avoid unnecessary jweak decode that
+    // triggers read barriers (and marks them alive unnecessarily and messes with class unloading.)
     const DexFile* dex_file;
-    mirror::MethodDexCacheType* resolved_methods;
     // Identify the associated class loader's class table. This is used to make sure that
     // the Java call to native DexCache.setResolvedType() inserts the resolved type in that
     // class table. It is also used to make sure we don't register the same dex cache with
@@ -1289,9 +1289,10 @@ class ClassLinker {
   class FindVirtualMethodHolderVisitor;
 
   friend class AppImageClassLoadersAndDexCachesHelper;
-  friend struct CompilationHelper;  // For Compile in ImageTest.
   friend class ImageDumper;  // for DexLock
-  friend class ImageWriter;  // for GetClassRoots
+  friend struct linker::CompilationHelper;  // For Compile in ImageTest.
+  friend class linker::ImageWriter;  // for GetClassRoots
+  friend class linker::OatWriter;  // for boot image string/class table slot address lookup.
   friend class JniCompilerTest;  // for GetRuntimeQuickGenericJniStub
   friend class JniInternalTest;  // for GetRuntimeQuickGenericJniStub
   friend class VMClassLoader;  // for LookupClass and FindClassInBaseDexClassLoader.

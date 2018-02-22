@@ -426,6 +426,84 @@ public class Main {
     }
   }
 
+  // Environment of an instruction, removed during SimplifyInduction, should be adjusted.
+  //
+  /// CHECK-START: void Main.inductionMax(int[]) loop_optimization (before)
+  /// CHECK-DAG: Phi loop:<<Loop:B\d+>> outer_loop:none
+  /// CHECK-DAG: Phi loop:<<Loop>>      outer_loop:none
+  //
+  /// CHECK-START: void Main.inductionMax(int[]) loop_optimization (after)
+  /// CHECK-NOT: Phi
+  private static void inductionMax(int[] a) {
+   int s = 0;
+    for (int i = 0; i < 10; i++) {
+      s = Math.max(s, 5);
+    }
+  }
+
+  /// CHECK-START: int Main.feedsIntoDeopt(int[]) loop_optimization (before)
+  /// CHECK-DAG: Phi loop:<<Loop1:B\d+>> outer_loop:none
+  /// CHECK-DAG: Phi loop:<<Loop1>>      outer_loop:none
+  /// CHECK-DAG: Phi loop:<<Loop2:B\d+>> outer_loop:none
+  //
+  /// CHECK-EVAL: "<<Loop1>>" != "<<Loop2>>"
+  //
+  /// CHECK-START: int Main.feedsIntoDeopt(int[]) loop_optimization (after)
+  /// CHECK-DAG: Phi loop:{{B\d+}} outer_loop:none
+  /// CHECK-NOT: Phi
+  static int feedsIntoDeopt(int[] a) {
+    // Reduction should be removed.
+    int r = 0;
+    for (int i = 0; i < 100; i++) {
+      r += 10;
+    }
+    // Even though uses feed into deopts of BCE.
+    for (int i = 1; i < 100; i++) {
+      a[i] = a[i - 1];
+    }
+    return r;
+  }
+
+  static int absCanBeNegative(int x) {
+    int a[] = { 1, 2, 3 };
+    int y = 0;
+    for (int i = Math.abs(x); i < a.length; i++) {
+      y += a[i];
+    }
+    return y;
+  }
+
+  // b/65478356: sum up 2-dim array.
+  static int sum(int[][] a) {
+    int sum = 0;
+    for (int y = 0; y < a.length; y++) {
+      int[] aa = a[y];
+      for (int x = 0; x < aa.length; x++) {
+        sum += aa[x];
+      }
+    }
+    return sum;
+  }
+
+  // Large loop body should not break unrolling computation.
+  static void largeBody(int[] x) {
+    for (int i = 0; i < 100; i++) {
+      x[i] = x[i] * 1 + x[i] * 2 + x[i] * 3 + x[i] * 4 + x[i] * 5 + x[i] * 6 +
+          x[i] * 7 + x[i] * 8 + x[i] * 9 + x[i] * 10 + x[i] * 11 + x[i] * 12 +
+          x[i] * 13 + x[i] * 14 + x[i] * 15 + x[i] * 1 + x[i] * 2 + x[i] * 3 + x[i] * 4 +
+          x[i] * 5 + x[i] * 6 + x[i] * 7 + x[i] * 8 + x[i] * 9 + x[i] * 10 + x[i] * 11 +
+          x[i] * 12 + x[i] * 13 + x[i] * 14 + x[i] * 15 + x[i] * 1 + x[i] * 2 + x[i] * 3 +
+          x[i] * 4 + x[i] * 5;
+    }
+  }
+
+  // Mixed of 16-bit and 8-bit array references.
+  static void castAndNarrow(byte[] x, char[] y) {
+    for (int i = 0; i < x.length; i++) {
+      x[i] = (byte) ((short) y[i] +  1);
+    }
+  }
+
   public static void main(String[] args) {
     expectEquals(10, earlyExitFirst(-1));
     for (int i = 0; i <= 10; i++) {
@@ -537,6 +615,55 @@ public class Main {
     typeConv(b1, b2);
     for (int i = 0; i < 259; i++) {
       expectEquals((byte)(i + 1), b1[i]);
+    }
+
+    inductionMax(yy);
+
+    int[] f = new int[100];
+    f[0] = 11;
+    expectEquals(1000, feedsIntoDeopt(f));
+    for (int i = 0; i < 100; i++) {
+      expectEquals(11, f[i]);
+    }
+
+    expectEquals(0, absCanBeNegative(-3));
+    expectEquals(3, absCanBeNegative(-2));
+    expectEquals(5, absCanBeNegative(-1));
+    expectEquals(6, absCanBeNegative(0));
+    expectEquals(5, absCanBeNegative(1));
+    expectEquals(3, absCanBeNegative(2));
+    expectEquals(0, absCanBeNegative(3));
+    expectEquals(0, absCanBeNegative(Integer.MAX_VALUE));
+    // Abs(min_int) = min_int.
+    int verify = 0;
+    try {
+      absCanBeNegative(Integer.MIN_VALUE);
+      verify = 1;
+    } catch (ArrayIndexOutOfBoundsException e) {
+      verify = 2;
+    }
+    expectEquals(2, verify);
+
+    int[][] x = new int[128][128];
+    for (int i = 0; i < 128; i++) {
+      for (int j = 0; j < 128; j++) {
+        x[i][j] = -i - j;
+      }
+    }
+    expectEquals(-2080768, sum(x));
+
+    largeBody(f);
+    for (int i = 0; i < 100; i++) {
+      expectEquals(2805, f[i]);
+    }
+
+    char[] cx = new char[259];
+    for (int i = 0; i < 259; i++) {
+      cx[i] = (char) (i - 100);
+    }
+    castAndNarrow(b1, cx);
+    for (int i = 0; i < 259; i++) {
+      expectEquals((byte)((short) cx[i] + 1), b1[i]);
     }
 
     System.out.println("passed");

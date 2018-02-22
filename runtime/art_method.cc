@@ -38,8 +38,8 @@
 #include "mirror/class-inl.h"
 #include "mirror/class_ext.h"
 #include "mirror/executable.h"
-#include "mirror/object_array-inl.h"
 #include "mirror/object-inl.h"
+#include "mirror/object_array-inl.h"
 #include "mirror/string.h"
 #include "oat_file-inl.h"
 #include "runtime_callbacks.h"
@@ -59,7 +59,7 @@ extern "C" void art_quick_invoke_static_stub(ArtMethod*, uint32_t*, uint32_t, Th
 DEFINE_RUNTIME_DEBUG_FLAG(ArtMethod, kCheckDeclaringClassState);
 
 // Enforce that we he have the right index for runtime methods.
-static_assert(ArtMethod::kRuntimeMethodDexMethodIndex == DexFile::kDexNoIndex,
+static_assert(ArtMethod::kRuntimeMethodDexMethodIndex == dex::kDexNoIndex,
               "Wrong runtime-method dex method index");
 
 ArtMethod* ArtMethod::GetCanonicalMethod(PointerSize pointer_size) {
@@ -166,6 +166,8 @@ InvokeType ArtMethod::GetInvokeType() {
     return kInterface;
   } else if (IsDirect()) {
     return kDirect;
+  } else if (IsPolymorphicSignature()) {
+    return kPolymorphic;
   } else {
     return kVirtual;
   }
@@ -258,7 +260,7 @@ uint32_t ArtMethod::FindDexMethodIndexInOtherDexFile(const DexFile& other_dexfil
       return other_dexfile.GetIndexForMethodId(*other_mid);
     }
   }
-  return DexFile::kDexNoIndex;
+  return dex::kDexNoIndex;
 }
 
 uint32_t ArtMethod::FindCatchBlock(Handle<mirror::Class> exception_type,
@@ -270,7 +272,7 @@ uint32_t ArtMethod::FindCatchBlock(Handle<mirror::Class> exception_type,
   Handle<mirror::Throwable> exception(hs.NewHandle(self->GetException()));
   self->ClearException();
   // Default to handler not found.
-  uint32_t found_dex_pc = DexFile::kDexNoIndex;
+  uint32_t found_dex_pc = dex::kDexNoIndex;
   // Iterate over the catch handlers associated with dex_pc.
   for (CatchHandlerIterator it(*code_item, dex_pc); it.HasNext(); it.Next()) {
     dex::TypeIndex iter_type_idx = it.GetHandlerTypeIndex();
@@ -280,7 +282,7 @@ uint32_t ArtMethod::FindCatchBlock(Handle<mirror::Class> exception_type,
       break;
     }
     // Does this catch exception type apply?
-    mirror::Class* iter_exception_type = GetClassFromTypeIndex(iter_type_idx, true /* resolve */);
+    ObjPtr<mirror::Class> iter_exception_type = ResolveClassFromTypeIndex(iter_type_idx);
     if (UNLIKELY(iter_exception_type == nullptr)) {
       // Now have a NoClassDefFoundError as exception. Ignore in case the exception class was
       // removed by a pro-guard like tool.
@@ -296,7 +298,7 @@ uint32_t ArtMethod::FindCatchBlock(Handle<mirror::Class> exception_type,
       break;
     }
   }
-  if (found_dex_pc != DexFile::kDexNoIndex) {
+  if (found_dex_pc != dex::kDexNoIndex) {
     const Instruction* first_catch_instr =
         Instruction::At(&code_item->insns_[found_dex_pc]);
     *has_no_move_exception = (first_catch_instr->Opcode() != Instruction::MOVE_EXCEPTION);
@@ -424,6 +426,12 @@ bool ArtMethod::IsAnnotatedWithFastNative() {
 bool ArtMethod::IsAnnotatedWithCriticalNative() {
   return IsAnnotatedWith(WellKnownClasses::dalvik_annotation_optimization_CriticalNative,
                          DexFile::kDexVisibilityBuild,
+                         /* lookup_in_resolved_boot_classes */ true);
+}
+
+bool ArtMethod::IsAnnotatedWithPolymorphicSignature() {
+  return IsAnnotatedWith(WellKnownClasses::java_lang_invoke_MethodHandle_PolymorphicSignature,
+                         DexFile::kDexVisibilityRuntime,
                          /* lookup_in_resolved_boot_classes */ true);
 }
 
@@ -777,26 +785,16 @@ std::string ArtMethod::PrettyMethod(ArtMethod* m, bool with_signature) {
 }
 
 std::string ArtMethod::PrettyMethod(bool with_signature) {
-  ArtMethod* m = this;
-  if (!m->IsRuntimeMethod()) {
-    m = m->GetInterfaceMethodIfProxy(Runtime::Current()->GetClassLinker()->GetImagePointerSize());
+  if (UNLIKELY(IsRuntimeMethod())) {
+    std::string result = GetDeclaringClassDescriptor();
+    result += '.';
+    result += GetName();
+    // Do not add "<no signature>" even if `with_signature` is true.
+    return result;
   }
-  std::string result(PrettyDescriptor(m->GetDeclaringClassDescriptor()));
-  result += '.';
-  result += m->GetName();
-  if (UNLIKELY(m->IsFastNative())) {
-    result += "!";
-  }
-  if (with_signature) {
-    const Signature signature = m->GetSignature();
-    std::string sig_as_string(signature.ToString());
-    if (signature == Signature::NoSignature()) {
-      return result + sig_as_string;
-    }
-    result = PrettyReturnType(sig_as_string.c_str()) + " " + result +
-        PrettyArguments(sig_as_string.c_str());
-  }
-  return result;
+  ArtMethod* m =
+      GetInterfaceMethodIfProxy(Runtime::Current()->GetClassLinker()->GetImagePointerSize());
+  return m->GetDexFile()->PrettyMethod(m->GetDexMethodIndex(), with_signature);
 }
 
 std::string ArtMethod::JniShortName() {

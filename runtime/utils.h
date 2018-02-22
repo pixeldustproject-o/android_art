@@ -81,12 +81,9 @@ std::string PrintableString(const char* utf8);
 // Returns a human-readable equivalent of 'descriptor'. So "I" would be "int",
 // "[[I" would be "int[][]", "[Ljava/lang/String;" would be
 // "java.lang.String[]", and so forth.
+void AppendPrettyDescriptor(const char* descriptor, std::string* result);
 std::string PrettyDescriptor(const char* descriptor);
 std::string PrettyDescriptor(Primitive::Type type);
-
-// Utilities for printing the types for method signatures.
-std::string PrettyArguments(const char* signature);
-std::string PrettyReturnType(const char* signature);
 
 // Returns a human-readable version of the Java part of the access flags, e.g., "private static "
 // (note the trailing whitespace).
@@ -142,9 +139,9 @@ void GetTaskStats(pid_t tid, char* state, int* utime, int* stime, int* task_cpu)
 void SetThreadName(const char* thread_name);
 
 // Find $ANDROID_ROOT, /system, or abort.
-const char* GetAndroidRoot();
-// Find $ANDROID_ROOT, /system, or return null.
-const char* GetAndroidRootSafe(std::string* error_msg);
+std::string GetAndroidRoot();
+// Find $ANDROID_ROOT, /system, or return an empty string.
+std::string GetAndroidRootSafe(std::string* error_msg);
 
 // Find $ANDROID_DATA, /data, or abort.
 const char* GetAndroidData();
@@ -340,6 +337,15 @@ inline static int32_t Signum(T opnd) {
 
 // Madvise the largest page aligned region within begin and end.
 int MadviseLargestPageAlignedRegion(const uint8_t* begin, const uint8_t* end, int advice);
+
+template <typename Func, typename... Args>
+static inline void CheckedCall(const Func& function, const char* what, Args... args) {
+  int rc = function(args...);
+  if (UNLIKELY(rc != 0)) {
+    errno = rc;
+    PLOG(FATAL) << "Checked call failed for " << what;
+  }
+}
 
 }  // namespace art
 

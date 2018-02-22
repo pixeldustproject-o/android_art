@@ -210,7 +210,7 @@ bool ClassLoaderContext::OpenDexFiles(InstructionSet isa, const std::string& cla
     for (const std::string& cp_elem : info.classpath) {
       // If path is relative, append it to the provided base directory.
       std::string raw_location = cp_elem;
-      if (raw_location[0] != '/') {
+      if (raw_location[0] != '/' && !classpath_dir.empty()) {
         raw_location = classpath_dir + '/' + raw_location;
       }
 
@@ -220,7 +220,7 @@ bool ClassLoaderContext::OpenDexFiles(InstructionSet isa, const std::string& cla
         // If we can't get the realpath of the location there might be something wrong with the
         // classpath (maybe the file was deleted).
         // Do not continue in this case and return false.
-        PLOG(ERROR) << "Could not get the realpath of dex location " << raw_location;
+        PLOG(WARNING) << "Could not get the realpath of dex location " << raw_location;
         return false;
       }
 

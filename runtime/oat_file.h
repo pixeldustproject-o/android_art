@@ -89,6 +89,18 @@ class OatFile {
                        const char* abs_dex_location,
                        std::string* error_msg);
 
+  // Similar to OatFile::Open(const std::string...), but accepts input vdex and
+  // odex files as file descriptors.
+  static OatFile* Open(int vdex_fd,
+                       int oat_fd,
+                       const std::string& oat_location,
+                       uint8_t* requested_base,
+                       uint8_t* oat_file_begin,
+                       bool executable,
+                       bool low_4gb,
+                       const char* abs_dex_location,
+                       std::string* error_msg);
+
   // Open an oat file from an already opened File.
   // Does not use dlopen underneath so cannot be used for runtime use
   // where relocations may be required. Currently used from
@@ -424,10 +436,6 @@ class OatDexFile FINAL {
   // Returns the offset to the OatClass information. Most callers should use GetOatClass.
   uint32_t GetOatClassOffset(uint16_t class_def_index) const;
 
-  uint8_t* GetDexCacheArrays() const {
-    return dex_cache_arrays_;
-  }
-
   const uint8_t* GetLookupTableData() const {
     return lookup_table_data_;
   }
@@ -472,7 +480,6 @@ class OatDexFile FINAL {
              const uint8_t* lookup_table_data,
              const MethodBssMapping* method_bss_mapping,
              const uint32_t* oat_class_offsets_pointer,
-             uint8_t* dex_cache_arrays,
              const DexLayoutSections* dex_layout_sections);
 
   static void AssertAotCompiler();
@@ -485,7 +492,6 @@ class OatDexFile FINAL {
   const uint8_t* const lookup_table_data_ = nullptr;
   const MethodBssMapping* const method_bss_mapping_ = nullptr;
   const uint32_t* const oat_class_offsets_pointer_ = 0u;
-  uint8_t* const dex_cache_arrays_ = nullptr;
   mutable std::unique_ptr<TypeLookupTable> lookup_table_;
   const DexLayoutSections* const dex_layout_sections_ = nullptr;
 

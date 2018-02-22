@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-#include "bump_pointer_space.h"
 #include "bump_pointer_space-inl.h"
+#include "bump_pointer_space.h"
 #include "gc/accounting/read_barrier_table.h"
-#include "mirror/object-inl.h"
 #include "mirror/class-inl.h"
+#include "mirror/object-inl.h"
 #include "thread_list.h"
 
 namespace art {
@@ -254,7 +254,7 @@ void RegionSpace::SetFromSpace(accounting::ReadBarrierTable* rb_table, bool forc
 static void ZeroAndProtectRegion(uint8_t* begin, uint8_t* end) {
   ZeroAndReleasePages(begin, end - begin);
   if (kProtectClearedRegions) {
-    mprotect(begin, end - begin, PROT_NONE);
+    CheckedCall(mprotect, __FUNCTION__, begin, end - begin, PROT_NONE);
   }
 }
 
@@ -589,7 +589,7 @@ void RegionSpace::Region::MarkAsAllocated(RegionSpace* region_space, uint32_t al
   region_space->AdjustNonFreeRegionLimit(idx_);
   type_ = RegionType::kRegionTypeToSpace;
   if (kProtectClearedRegions) {
-    mprotect(Begin(), kRegionSize, PROT_READ | PROT_WRITE);
+    CheckedCall(mprotect, __FUNCTION__, Begin(), kRegionSize, PROT_READ | PROT_WRITE);
   }
 }
 

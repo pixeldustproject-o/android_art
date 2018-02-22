@@ -16,8 +16,8 @@
 
 #include "interpreter/interpreter_intrinsics.h"
 
-#include "compiler/intrinsics_enum.h"
 #include "dex_instruction.h"
+#include "intrinsics_enum.h"
 #include "interpreter/interpreter_common.h"
 
 namespace art {
@@ -323,6 +323,22 @@ static ALWAYS_INLINE bool MterpStringEquals(ShadowFrame* shadow_frame,
   return true;
 }
 
+#define METHOD_HANDLE_INVOKE_INTRINSIC(name)                                                      \
+static ALWAYS_INLINE bool Mterp##name(ShadowFrame* shadow_frame,                                  \
+                               const Instruction* inst,                                           \
+                               uint16_t inst_data,                                                \
+                               JValue* result)                                                    \
+    REQUIRES_SHARED(Locks::mutator_lock_) {                                                       \
+  if (inst->Opcode() == Instruction::INVOKE_POLYMORPHIC) {                                        \
+    return DoInvokePolymorphic<false>(Thread::Current(), *shadow_frame, inst, inst_data, result); \
+  } else {                                                                                        \
+    return DoInvokePolymorphic<true>(Thread::Current(), *shadow_frame, inst, inst_data, result);  \
+  }                                                                                               \
+}
+
+METHOD_HANDLE_INVOKE_INTRINSIC(MethodHandleInvokeExact)
+METHOD_HANDLE_INVOKE_INTRINSIC(MethodHandleInvoke)
+
 // Macro to help keep track of what's left to implement.
 #define UNIMPLEMENTED_CASE(name)    \
     case Intrinsics::k##name:       \
@@ -470,6 +486,8 @@ bool MterpHandleIntrinsic(ShadowFrame* shadow_frame,
     UNIMPLEMENTED_CASE(ReferenceGetReferent /* ()Ljava/lang/Object; */)
     UNIMPLEMENTED_CASE(IntegerValueOf /* (I)Ljava/lang/Integer; */)
     UNIMPLEMENTED_CASE(ThreadInterrupted /* ()Z */)
+    INTRINSIC_CASE(MethodHandleInvokeExact)
+    INTRINSIC_CASE(MethodHandleInvoke)
     case Intrinsics::kNone:
       res = false;
       break;

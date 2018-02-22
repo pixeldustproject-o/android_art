@@ -22,15 +22,14 @@
 #include "base/logging.h"
 #include "class_linker.h"
 #include "dex_file-inl.h"
-#include "gc_root-inl.h"
 #include "gc/accounting/card_table-inl.h"
+#include "gc_root-inl.h"
 #include "jvalue.h"
 #include "mirror/dex_cache-inl.h"
 #include "mirror/object-inl.h"
 #include "primitive.h"
-#include "thread-current-inl.h"
 #include "scoped_thread_state_change-inl.h"
-#include "well_known_classes.h"
+#include "thread-current-inl.h"
 
 namespace art {
 
@@ -341,7 +340,7 @@ inline const DexFile* ArtField::GetDexFile() REQUIRES_SHARED(Locks::mutator_lock
 
 inline ObjPtr<mirror::String> ArtField::GetStringName(Thread* self, bool resolve) {
   auto dex_field_index = GetDexFieldIndex();
-  CHECK_NE(dex_field_index, DexFile::kDexNoIndex);
+  CHECK_NE(dex_field_index, dex::kDexNoIndex);
   ObjPtr<mirror::DexCache> dex_cache = GetDexCache();
   const auto* dex_file = dex_cache->GetDexFile();
   const auto& field_id = dex_file->GetFieldId(dex_field_index);

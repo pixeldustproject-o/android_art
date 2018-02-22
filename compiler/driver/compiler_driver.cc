@@ -16,9 +16,9 @@
 
 #include "compiler_driver.h"
 
+#include <unistd.h>
 #include <unordered_set>
 #include <vector>
-#include <unistd.h>
 
 #ifndef __APPLE__
 #include <malloc.h>  // For mallinfo
@@ -37,7 +37,7 @@
 #include "base/time_utils.h"
 #include "base/timing_logger.h"
 #include "class_linker-inl.h"
-#include "compiled_method.h"
+#include "compiled_method-inl.h"
 #include "compiler.h"
 #include "compiler_callbacks.h"
 #include "compiler_driver-inl.h"
@@ -55,6 +55,7 @@
 #include "handle_scope-inl.h"
 #include "intrinsics_enum.h"
 #include "jni_internal.h"
+#include "linker/linker_patch.h"
 #include "mirror/class-inl.h"
 #include "mirror/class_loader.h"
 #include "mirror/dex_cache-inl.h"
@@ -65,6 +66,7 @@
 #include "nativehelper/ScopedLocalRef.h"
 #include "object_lock.h"
 #include "runtime.h"
+#include "runtime_intrinsics.h"
 #include "scoped_thread_state_change-inl.h"
 #include "thread.h"
 #include "thread_list.h"
@@ -363,28 +365,6 @@ std::unique_ptr<const std::vector<uint8_t>> CompilerDriver::CreateQuickToInterpr
 }
 #undef CREATE_TRAMPOLINE
 
-static void SetupIntrinsic(Thread* self,
-                           Intrinsics intrinsic,
-                           InvokeType invoke_type,
-                           const char* class_name,
-                           const char* method_name,
-                           const char* signature)
-      REQUIRES_SHARED(Locks::mutator_lock_) {
-  ClassLinker* class_linker = Runtime::Current()->GetClassLinker();
-  PointerSize image_size = class_linker->GetImagePointerSize();
-  ObjPtr<mirror::Class> cls = class_linker->FindSystemClass(self, class_name);
-  if (cls == nullptr) {
-    LOG(FATAL) << "Could not find class of intrinsic " << class_name;
-  }
-  ArtMethod* method = cls->FindClassMethod(method_name, signature, image_size);
-  if (method == nullptr || method->GetDeclaringClass() != cls) {
-    LOG(FATAL) << "Could not find method of intrinsic "
-               << class_name << " " << method_name << " " << signature;
-  }
-  DCHECK_EQ(method->GetInvokeType(), invoke_type);
-  method->SetIntrinsic(static_cast<uint32_t>(intrinsic));
-}
-
 void CompilerDriver::CompileAll(jobject class_loader,
                                 const std::vector<const DexFile*>& dex_files,
                                 TimingLogger* timings) {
@@ -403,14 +383,7 @@ void CompilerDriver::CompileAll(jobject class_loader,
     // We don't need to setup the intrinsics for non boot image compilation, as
     // those compilations will pick up a boot image that have the ArtMethod already
     // set with the intrinsics flag.
-    ScopedObjectAccess soa(Thread::Current());
-#define SETUP_INTRINSICS(Name, InvokeType, NeedsEnvironmentOrCache, SideEffects, Exceptions, \
-                         ClassName, MethodName, Signature) \
-  SetupIntrinsic(soa.Self(), Intrinsics::k##Name, InvokeType, ClassName, MethodName, Signature);
-#include "intrinsics_list.h"
-INTRINSICS_LIST(SETUP_INTRINSICS)
-#undef INTRINSICS_LIST
-#undef SETUP_INTRINSICS
+    InitializeIntrinsics();
   }
   // Compile:
   // 1) Compile all classes and methods enabled for compilation. May fall back to dex-to-dex
@@ -618,7 +591,7 @@ static void CompileMethod(Thread* self,
   if (compiled_method != nullptr) {
     // Count non-relative linker patches.
     size_t non_relative_linker_patch_count = 0u;
-    for (const LinkerPatch& patch : compiled_method->GetPatches()) {
+    for (const linker::LinkerPatch& patch : compiled_method->GetPatches()) {
       if (!patch.IsPcRelative()) {
         ++non_relative_linker_patch_count;
       }
@@ -761,18 +734,14 @@ static void ResolveConstStrings(Handle<mirror::DexCache> dex_cache,
     return;
   }
 
-  const uint16_t* code_ptr = code_item->insns_;
-  const uint16_t* code_end = code_item->insns_ + code_item->insns_size_in_code_units_;
   ClassLinker* const class_linker = Runtime::Current()->GetClassLinker();
-
-  while (code_ptr < code_end) {
-    const Instruction* inst = Instruction::At(code_ptr);
-    switch (inst->Opcode()) {
+  for (const Instruction& inst : code_item->Instructions()) {
+    switch (inst.Opcode()) {
       case Instruction::CONST_STRING:
       case Instruction::CONST_STRING_JUMBO: {
-        dex::StringIndex string_index((inst->Opcode() == Instruction::CONST_STRING)
-            ? inst->VRegB_21c()
-            : inst->VRegB_31c());
+        dex::StringIndex string_index((inst.Opcode() == Instruction::CONST_STRING)
+            ? inst.VRegB_21c()
+            : inst.VRegB_31c());
         mirror::String* string = class_linker->ResolveString(dex_file, string_index, dex_cache);
         CHECK(string != nullptr) << "Could not allocate a string when forcing determinism";
         break;
@@ -781,8 +750,6 @@ static void ResolveConstStrings(Handle<mirror::DexCache> dex_cache,
       default:
         break;
     }
-
-    code_ptr += inst->SizeInCodeUnits();
   }
 }
 
@@ -896,7 +863,7 @@ void CompilerDriver::PreCompile(jobject class_loader,
     for (const DexFile* dex_file : dex_files) {
       // Can be already inserted if the caller is CompileOne. This happens for gtests.
       if (!compiled_methods_.HaveDexFile(dex_file)) {
-        compiled_methods_.AddDexFile(dex_file, dex_file->NumMethodIds());
+        compiled_methods_.AddDexFile(dex_file);
       }
     }
     // Resolve eagerly to prepare for compilation.
@@ -923,8 +890,11 @@ void CompilerDriver::PreCompile(jobject class_loader,
   VLOG(compiler) << "Verify: " << GetMemoryUsageString(false);
 
   if (had_hard_verifier_failure_ && GetCompilerOptions().AbortOnHardVerifierFailure()) {
-    LOG(FATAL) << "Had a hard failure verifying all classes, and was asked to abort in such "
-               << "situations. Please check the log.";
+    // Avoid dumping threads. Even if we shut down the thread pools, there will still be three
+    // instances of this thread's stack.
+    LOG(FATAL_WITHOUT_ABORT) << "Had a hard failure verifying all classes, and was asked to abort "
+                             << "in such situations. Please check the log.";
+    abort();
   }
 
   if (compiler_options_->IsAnyCompilationEnabled()) {
@@ -961,7 +931,7 @@ bool CompilerDriver::IsMethodToCompile(const MethodReference& method_ref) const 
     return true;
   }
 
-  std::string tmp = method_ref.dex_file->PrettyMethod(method_ref.dex_method_index, true);
+  std::string tmp = method_ref.PrettyMethod();
   return methods_to_compile_->find(tmp.c_str()) != methods_to_compile_->end();
 }
 
@@ -982,8 +952,7 @@ bool CompilerDriver::ShouldCompileBasedOnProfile(const MethodReference& method_r
 
   if (kDebugProfileGuidedCompilation) {
     LOG(INFO) << "[ProfileGuidedCompilation] "
-        << (result ? "Compiled" : "Skipped") << " method:"
-        << method_ref.dex_file->PrettyMethod(method_ref.dex_method_index, true);
+        << (result ? "Compiled" : "Skipped") << " method:" << method_ref.PrettyMethod(true);
   }
   return result;
 }
@@ -1356,7 +1325,7 @@ void CompilerDriver::MarkForDexToDexCompilation(Thread* self, const MethodRefere
       &dex_to_dex_references_.back().GetDexFile() != method_ref.dex_file) {
     dex_to_dex_references_.emplace_back(*method_ref.dex_file);
   }
-  dex_to_dex_references_.back().GetMethodIndexes().SetBit(method_ref.dex_method_index);
+  dex_to_dex_references_.back().GetMethodIndexes().SetBit(method_ref.index);
 }
 
 bool CompilerDriver::CanAccessTypeWithoutChecks(ObjPtr<mirror::Class> referrer_class,
@@ -1941,7 +1910,7 @@ bool CompilerDriver::FastVerify(jobject jclass_loader,
         if (compiler_only_verifies) {
           // Just update the compiled_classes_ map. The compiler doesn't need to resolve
           // the type.
-          DexFileReference ref(dex_file, i);
+          ClassReference ref(dex_file, i);
           mirror::Class::Status existing = mirror::Class::kStatusNotReady;
           DCHECK(compiled_classes_.Get(ref, &existing)) << ref.dex_file->GetLocation();
           ClassStateTable::InsertResult result =
@@ -2099,16 +2068,29 @@ class VerifyClassVisitor : public CompilationVisitor {
       ClassReference ref(manager_->GetDexFile(), class_def_index);
       manager_->GetCompiler()->RecordClassStatus(ref, klass->GetStatus());
 
-      // It is *very* problematic if there are verification errors in the boot classpath. For example,
-      // we rely on things working OK without verification when the decryption dialog is brought up.
-      // So abort in a debug build if we find this violated.
+      // It is *very* problematic if there are verification errors in the boot classpath.
+      // For example, we rely on things working OK without verification when the decryption dialog
+      // is brought up. So abort in a debug build if we find this violated.
       if (kIsDebugBuild) {
-        // TODO(narayan): Remove this special case for signature polymorphic
-        // invokes once verifier support is fully implemented.
-        if (manager_->GetCompiler()->GetCompilerOptions().IsBootImage() &&
-            !android::base::StartsWith(descriptor, "Ljava/lang/invoke/")) {
-          DCHECK(klass->IsVerified()) << "Boot classpath class " << klass->PrettyClass()
-              << " failed to fully verify: state= " << klass->GetStatus();
+        if (manager_->GetCompiler()->GetCompilerOptions().IsBootImage()) {
+          if (!klass->IsVerified()) {
+            // Re-run verification to get all failure messages if it soft-failed.
+            if (!klass->IsErroneous()) {
+              gLogVerbosity.verifier = true;
+              // Note: We can't call ClassLinker::VerifyClass, as it will elide the second
+              //       verification.
+              Runtime* runtime = Runtime::Current();
+              std::string v_error;
+              verifier::MethodVerifier::VerifyClass(soa.Self(),
+                                                    klass.Get(),
+                                                    runtime->GetCompilerCallbacks(),
+                                                    runtime->IsAotCompiler(),
+                                                    verifier::HardFailLogMode::kLogInternalFatal,
+                                                    &v_error);
+            }
+            LOG(FATAL) << "Boot classpath class " << klass->PrettyClass()
+                       << " failed to fully verify: state= " << klass->GetStatus();
+          }
         }
         if (klass->IsVerified()) {
           DCHECK_EQ(failure_kind, verifier::FailureKind::kNoFailure);
@@ -2204,7 +2186,7 @@ void CompilerDriver::SetVerifiedDexFile(jobject class_loader,
                                         TimingLogger* timings) {
   TimingLogger::ScopedTiming t("Verify Dex File", timings);
   if (!compiled_classes_.HaveDexFile(&dex_file)) {
-    compiled_classes_.AddDexFile(&dex_file, dex_file.NumClassDefs());
+    compiled_classes_.AddDexFile(&dex_file);
   }
   ClassLinker* class_linker = Runtime::Current()->GetClassLinker();
   ParallelCompilationManager context(class_linker, class_loader, this, &dex_file, dex_files,
@@ -2323,10 +2305,8 @@ class InitializeClassVisitor : public CompilationVisitor {
             // a ReaderWriterMutex but we're holding the mutator lock so we fail mutex sanity
             // checks in Thread::AssertThreadSuspensionIsAllowable.
             Runtime* const runtime = Runtime::Current();
-            Transaction transaction;
-
             // Run the class initializer in transaction mode.
-            runtime->EnterTransactionMode(&transaction);
+            runtime->EnterTransactionMode(is_app_image, klass.Get());
             bool success = manager_->GetClassLinker()->EnsureInitialized(soa.Self(), klass, true,
                                                                          true);
             // TODO we detach transaction from runtime to indicate we quit the transactional
@@ -2335,7 +2315,11 @@ class InitializeClassVisitor : public CompilationVisitor {
 
             {
               ScopedAssertNoThreadSuspension ants("Transaction end");
-              runtime->ExitTransactionMode();
+
+              if (success) {
+                runtime->ExitTransactionMode();
+                DCHECK(!runtime->IsActiveTransaction());
+              }
 
               if (!success) {
                 CHECK(soa.Self()->IsExceptionPending());
@@ -2349,7 +2333,7 @@ class InitializeClassVisitor : public CompilationVisitor {
                   *file_log << exception->Dump() << "\n";
                 }
                 soa.Self()->ClearException();
-                transaction.Rollback();
+                runtime->RollbackAllTransactions();
                 CHECK_EQ(old_status, klass->GetStatus()) << "Previous class status not restored";
               } else if (is_boot_image) {
                 // For boot image, we want to put the updated status in the oat class since we can't
@@ -2421,28 +2405,24 @@ class InitializeClassVisitor : public CompilationVisitor {
     if (clinit != nullptr) {
       const DexFile::CodeItem* code_item = clinit->GetCodeItem();
       DCHECK(code_item != nullptr);
-      const Instruction* inst = Instruction::At(code_item->insns_);
-
-      const uint32_t insns_size = code_item->insns_size_in_code_units_;
-      for (uint32_t dex_pc = 0; dex_pc < insns_size;) {
-        if (inst->Opcode() == Instruction::CONST_STRING) {
+      for (const Instruction& inst : code_item->Instructions()) {
+        if (inst.Opcode() == Instruction::CONST_STRING) {
           ObjPtr<mirror::String> s = class_linker->ResolveString(
-              *dex_file, dex::StringIndex(inst->VRegB_21c()), h_dex_cache);
+              *dex_file, dex::StringIndex(inst.VRegB_21c()), h_dex_cache);
           CHECK(s != nullptr);
-        } else if (inst->Opcode() == Instruction::CONST_STRING_JUMBO) {
+        } else if (inst.Opcode() == Instruction::CONST_STRING_JUMBO) {
           ObjPtr<mirror::String> s = class_linker->ResolveString(
-              *dex_file, dex::StringIndex(inst->VRegB_31c()), h_dex_cache);
+              *dex_file, dex::StringIndex(inst.VRegB_31c()), h_dex_cache);
           CHECK(s != nullptr);
         }
-        dex_pc += inst->SizeInCodeUnits();
-        inst = inst->Next();
       }
     }
   }
 
   bool ResolveTypesOfMethods(Thread* self, ArtMethod* m)
       REQUIRES_SHARED(Locks::mutator_lock_) {
-    auto rtn_type = m->GetReturnType(true);  // return value is discarded because resolve will be done internally.
+    // Return value of ResolveReturnType() is discarded because resolve will be done internally.
+    ObjPtr<mirror::Class> rtn_type = m->ResolveReturnType();
     if (rtn_type == nullptr) {
       self->ClearException();
       return false;
@@ -2451,7 +2431,7 @@ class InitializeClassVisitor : public CompilationVisitor {
     if (types != nullptr) {
       for (uint32_t i = 0; i < types->Size(); ++i) {
         dex::TypeIndex param_type_idx = types->GetTypeItem(i).type_idx_;
-        auto param_type = m->GetClassFromTypeIndex(param_type_idx, true);
+        ObjPtr<mirror::Class> param_type = m->ResolveClassFromTypeIndex(param_type_idx);
         if (param_type == nullptr) {
           self->ClearException();
           return false;
@@ -2858,30 +2838,36 @@ void CompilerDriver::CompileDexFile(jobject class_loader,
 void CompilerDriver::AddCompiledMethod(const MethodReference& method_ref,
                                        CompiledMethod* const compiled_method,
                                        size_t non_relative_linker_patch_count) {
-  DCHECK(GetCompiledMethod(method_ref) == nullptr)
-      << method_ref.dex_file->PrettyMethod(method_ref.dex_method_index);
-  MethodTable::InsertResult result = compiled_methods_.Insert(
-      DexFileReference(method_ref.dex_file, method_ref.dex_method_index),
-      /*expected*/ nullptr,
-      compiled_method);
+  DCHECK(GetCompiledMethod(method_ref) == nullptr) << method_ref.PrettyMethod();
+  MethodTable::InsertResult result = compiled_methods_.Insert(method_ref,
+                                                              /*expected*/ nullptr,
+                                                              compiled_method);
   CHECK(result == MethodTable::kInsertResultSuccess);
   non_relative_linker_patch_count_.FetchAndAddRelaxed(non_relative_linker_patch_count);
-  DCHECK(GetCompiledMethod(method_ref) != nullptr)
-      << method_ref.dex_file->PrettyMethod(method_ref.dex_method_index);
+  DCHECK(GetCompiledMethod(method_ref) != nullptr) << method_ref.PrettyMethod();
 }
 
-bool CompilerDriver::GetCompiledClass(ClassReference ref, mirror::Class::Status* status) const {
+bool CompilerDriver::GetCompiledClass(const ClassReference& ref,
+                                      mirror::Class::Status* status) const {
   DCHECK(status != nullptr);
   // The table doesn't know if something wasn't inserted. For this case it will return
   // kStatusNotReady. To handle this, just assume anything we didn't try to verify is not compiled.
-  if (!compiled_classes_.Get(DexFileReference(ref.first, ref.second), status) ||
+  if (!compiled_classes_.Get(ref, status) ||
       *status < mirror::Class::kStatusRetryVerificationAtRuntime) {
     return false;
   }
   return true;
 }
 
-void CompilerDriver::RecordClassStatus(ClassReference ref, mirror::Class::Status status) {
+mirror::Class::Status CompilerDriver::GetClassStatus(const ClassReference& ref) const {
+  mirror::Class::Status status = ClassStatus::kStatusNotReady;
+  if (!GetCompiledClass(ref, &status)) {
+    classpath_classes_.Get(ref, &status);
+  }
+  return status;
+}
+
+void CompilerDriver::RecordClassStatus(const ClassReference& ref, mirror::Class::Status status) {
   switch (status) {
     case mirror::Class::kStatusErrorResolved:
     case mirror::Class::kStatusErrorUnresolved:
@@ -2894,24 +2880,30 @@ void CompilerDriver::RecordClassStatus(ClassReference ref, mirror::Class::Status
       break;  // Expected states.
     default:
       LOG(FATAL) << "Unexpected class status for class "
-          << PrettyDescriptor(ref.first->GetClassDescriptor(ref.first->GetClassDef(ref.second)))
+          << PrettyDescriptor(
+              ref.dex_file->GetClassDescriptor(ref.dex_file->GetClassDef(ref.index)))
           << " of " << status;
   }
 
   ClassStateTable::InsertResult result;
+  ClassStateTable* table = &compiled_classes_;
   do {
-    DexFileReference dex_ref(ref.first, ref.second);
     mirror::Class::Status existing = mirror::Class::kStatusNotReady;
-    if (!compiled_classes_.Get(dex_ref, &existing)) {
-      // Probably a uses library class, bail.
+    if (!table->Get(ref, &existing)) {
+      // A classpath class.
       if (kIsDebugBuild) {
         // Check to make sure it's not a dex file for an oat file we are compiling since these
         // should always succeed. These do not include classes in for used libraries.
         for (const DexFile* dex_file : GetDexFilesForOatFile()) {
-          CHECK_NE(dex_ref.dex_file, dex_file) << dex_ref.dex_file->GetLocation();
+          CHECK_NE(ref.dex_file, dex_file) << ref.dex_file->GetLocation();
         }
       }
-      return;
+      if (!classpath_classes_.HaveDexFile(ref.dex_file)) {
+        // Boot classpath dex file.
+        return;
+      }
+      table = &classpath_classes_;
+      table->Get(ref, &existing);
     }
     if (existing >= status) {
       // Existing status is already better than we expect, break.
@@ -2919,14 +2911,14 @@ void CompilerDriver::RecordClassStatus(ClassReference ref, mirror::Class::Status
     }
     // Update the status if we now have a greater one. This happens with vdex,
     // which records a class is verified, but does not resolve it.
-    result = compiled_classes_.Insert(dex_ref, existing, status);
-    CHECK(result != ClassStateTable::kInsertResultInvalidDexFile);
+    result = table->Insert(ref, existing, status);
+    CHECK(result != ClassStateTable::kInsertResultInvalidDexFile) << ref.dex_file->GetLocation();
   } while (result != ClassStateTable::kInsertResultSuccess);
 }
 
 CompiledMethod* CompilerDriver::GetCompiledMethod(MethodReference ref) const {
   CompiledMethod* compiled_method = nullptr;
-  compiled_methods_.Get(DexFileReference(ref.dex_file, ref.dex_method_index), &compiled_method);
+  compiled_methods_.Get(ref, &compiled_method);
   return compiled_method;
 }
 
@@ -3027,17 +3019,11 @@ void CompilerDriver::FreeThreadPools() {
 
 void CompilerDriver::SetDexFilesForOatFile(const std::vector<const DexFile*>& dex_files) {
   dex_files_for_oat_file_ = dex_files;
-  for (const DexFile* dex_file : dex_files) {
-    if (!compiled_classes_.HaveDexFile(dex_file)) {
-      compiled_classes_.AddDexFile(dex_file, dex_file->NumClassDefs());
-    }
-  }
+  compiled_classes_.AddDexFiles(dex_files);
 }
 
-bool CompilerDriver::CanAssumeVerified(ClassReference ref) const {
-  mirror::Class::Status existing = mirror::Class::kStatusNotReady;
-  compiled_classes_.Get(DexFileReference(ref.first, ref.second), &existing);
-  return existing >= mirror::Class::kStatusVerified;
+void CompilerDriver::SetClasspathDexFiles(const std::vector<const DexFile*>& dex_files) {
+  classpath_classes_.AddDexFiles(dex_files);
 }
 
 }  // namespace art

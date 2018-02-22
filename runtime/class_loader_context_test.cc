@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
+#include "class_loader_context.h"
+
 #include <gtest/gtest.h>
 #include <stdlib.h>
+
+#include "android-base/strings.h"
 
 #include "base/dchecked_vector.h"
 #include "base/stl_util.h"
@@ -70,6 +74,15 @@ class ClassLoaderContextTest : public CommonRuntimeTest {
     VerifyClassLoaderFromTestDex(
         context, index, ClassLoaderContext::kDelegateLastClassLoader, test_name);
   }
+
+  enum class LocationCheck {
+    kEquals,
+    kEndsWith
+  };
+  enum class BaseLocationCheck {
+    kEquals,
+    kEndsWith
+  };
 
   void VerifyOpenDexFiles(
       ClassLoaderContext* context,
@@ -292,6 +305,72 @@ TEST_F(ClassLoaderContextTest, OpenValidDexFilesSymLink) {
   std::vector<std::unique_ptr<const DexFile>> myclass_dex_files = OpenTestDexFiles("MyClass");
 
   VerifyOpenDexFiles(context.get(), 0, &myclass_dex_files);
+}
+
+static std::string CreateRelativeString(const std::string& in, const char* cwd) {
+  int cwd_len = strlen(cwd);
+  if (!android::base::StartsWith(in, cwd) || (cwd_len < 1)) {
+    LOG(FATAL) << in << " " << cwd;
+  }
+  bool contains_trailing_slash = (cwd[cwd_len - 1] == '/');
+  int start_position = cwd_len + (contains_trailing_slash ? 0 : 1);
+  return in.substr(start_position);
+}
+
+TEST_F(ClassLoaderContextTest, OpenValidDexFilesRelative) {
+  char cwd_buf[4096];
+  if (getcwd(cwd_buf, arraysize(cwd_buf)) == nullptr) {
+    PLOG(FATAL) << "Could not get working directory";
+  }
+  std::string multidex_name = CreateRelativeString(GetTestDexFileName("MultiDex"), cwd_buf);
+  std::string myclass_dex_name = CreateRelativeString(GetTestDexFileName("MyClass"), cwd_buf);
+  std::string dex_name = CreateRelativeString(GetTestDexFileName("Main"), cwd_buf);
+
+
+  std::unique_ptr<ClassLoaderContext> context =
+      ClassLoaderContext::Create(
+          "PCL[" + multidex_name + ":" + myclass_dex_name + "];" +
+          "DLC[" + dex_name + "]");
+
+  ASSERT_TRUE(context->OpenDexFiles(InstructionSet::kArm, /*classpath_dir*/ ""));
+
+  std::vector<std::unique_ptr<const DexFile>> all_dex_files0 = OpenTestDexFiles("MultiDex");
+  std::vector<std::unique_ptr<const DexFile>> myclass_dex_files = OpenTestDexFiles("MyClass");
+  for (size_t i = 0; i < myclass_dex_files.size(); i++) {
+    all_dex_files0.emplace_back(myclass_dex_files[i].release());
+  }
+  VerifyOpenDexFiles(context.get(), 0, &all_dex_files0);
+
+  std::vector<std::unique_ptr<const DexFile>> all_dex_files1 = OpenTestDexFiles("Main");
+  VerifyOpenDexFiles(context.get(), 1, &all_dex_files1);
+}
+
+TEST_F(ClassLoaderContextTest, OpenValidDexFilesClasspathDir) {
+  char cwd_buf[4096];
+  if (getcwd(cwd_buf, arraysize(cwd_buf)) == nullptr) {
+    PLOG(FATAL) << "Could not get working directory";
+  }
+  std::string multidex_name = CreateRelativeString(GetTestDexFileName("MultiDex"), cwd_buf);
+  std::string myclass_dex_name = CreateRelativeString(GetTestDexFileName("MyClass"), cwd_buf);
+  std::string dex_name = CreateRelativeString(GetTestDexFileName("Main"), cwd_buf);
+
+  std::unique_ptr<ClassLoaderContext> context =
+      ClassLoaderContext::Create(
+          "PCL[" + multidex_name + ":" + myclass_dex_name + "];" +
+          "DLC[" + dex_name + "]");
+
+  ASSERT_TRUE(context->OpenDexFiles(InstructionSet::kArm, cwd_buf));
+
+  VerifyContextSize(context.get(), 2);
+  std::vector<std::unique_ptr<const DexFile>> all_dex_files0 = OpenTestDexFiles("MultiDex");
+  std::vector<std::unique_ptr<const DexFile>> myclass_dex_files = OpenTestDexFiles("MyClass");
+  for (size_t i = 0; i < myclass_dex_files.size(); i++) {
+    all_dex_files0.emplace_back(myclass_dex_files[i].release());
+  }
+  VerifyOpenDexFiles(context.get(), 0, &all_dex_files0);
+
+  std::vector<std::unique_ptr<const DexFile>> all_dex_files1 = OpenTestDexFiles("Main");
+  VerifyOpenDexFiles(context.get(), 1, &all_dex_files1);
 }
 
 TEST_F(ClassLoaderContextTest, OpenInvalidDexFilesMix) {

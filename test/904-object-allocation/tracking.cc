@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-#include <iostream>
-#include <mutex>
 #include <pthread.h>
-#include <stdio.h>
+
+#include <cstdio>
+#include <iostream>
+#include <mutex>     // NOLINT [build/c++11] [5]
 #include <vector>
 
 #include "android-base/logging.h"

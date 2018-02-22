@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
-#include "load_store_analysis.h"
 #include "load_store_elimination.h"
 
+#include "base/array_ref.h"
+#include "base/scoped_arena_allocator.h"
+#include "base/scoped_arena_containers.h"
 #include "escape.h"
+#include "load_store_analysis.h"
 #include "side_effects_analysis.h"
 
 #include <iostream>
@@ -36,25 +39,28 @@ static HInstruction* const kUnknownHeapValue =
 static HInstruction* const kDefaultHeapValue =
     reinterpret_cast<HInstruction*>(static_cast<uintptr_t>(-2));
 
-class LSEVisitor : public HGraphVisitor {
+// Use HGraphDelegateVisitor for which all VisitInvokeXXX() delegate to VisitInvoke().
+class LSEVisitor : public HGraphDelegateVisitor {
  public:
   LSEVisitor(HGraph* graph,
              const HeapLocationCollector& heap_locations_collector,
-             const SideEffectsAnalysis& side_effects)
-      : HGraphVisitor(graph),
+             const SideEffectsAnalysis& side_effects,
+             OptimizingCompilerStats* stats)
+      : HGraphDelegateVisitor(graph, stats),
         heap_location_collector_(heap_locations_collector),
         side_effects_(side_effects),
+        allocator_(graph->GetArenaStack()),
         heap_values_for_(graph->GetBlocks().size(),
-                         ArenaVector<HInstruction*>(heap_locations_collector.
-                                                    GetNumberOfHeapLocations(),
-                                                    kUnknownHeapValue,
-                                                    graph->GetArena()->Adapter(kArenaAllocLSE)),
-                         graph->GetArena()->Adapter(kArenaAllocLSE)),
-        removed_loads_(graph->GetArena()->Adapter(kArenaAllocLSE)),
-        substitute_instructions_for_loads_(graph->GetArena()->Adapter(kArenaAllocLSE)),
-        possibly_removed_stores_(graph->GetArena()->Adapter(kArenaAllocLSE)),
-        singleton_new_instances_(graph->GetArena()->Adapter(kArenaAllocLSE)),
-        singleton_new_arrays_(graph->GetArena()->Adapter(kArenaAllocLSE)) {
+                         ScopedArenaVector<HInstruction*>(heap_locations_collector.
+                                                          GetNumberOfHeapLocations(),
+                                                          kUnknownHeapValue,
+                                                          allocator_.Adapter(kArenaAllocLSE)),
+                         allocator_.Adapter(kArenaAllocLSE)),
+        removed_loads_(allocator_.Adapter(kArenaAllocLSE)),
+        substitute_instructions_for_loads_(allocator_.Adapter(kArenaAllocLSE)),
+        possibly_removed_stores_(allocator_.Adapter(kArenaAllocLSE)),
+        singleton_new_instances_(allocator_.Adapter(kArenaAllocLSE)),
+        singleton_new_arrays_(allocator_.Adapter(kArenaAllocLSE)) {
   }
 
   void VisitBasicBlock(HBasicBlock* block) OVERRIDE {
@@ -100,7 +106,10 @@ class LSEVisitor : public HGraphVisitor {
     //   * - Constructor fences (they never escape this thread).
     //   * - Allocations (if they are unused).
     for (HInstruction* new_instance : singleton_new_instances_) {
-      HConstructorFence::RemoveConstructorFences(new_instance);
+      size_t removed = HConstructorFence::RemoveConstructorFences(new_instance);
+      MaybeRecordStat(stats_,
+                      MethodCompilationStat::kConstructorFenceRemovedLSE,
+                      removed);
 
       if (!new_instance->HasNonEnvironmentUses()) {
         new_instance->RemoveEnvironmentUsers();
@@ -108,7 +117,10 @@ class LSEVisitor : public HGraphVisitor {
       }
     }
     for (HInstruction* new_array : singleton_new_arrays_) {
-      HConstructorFence::RemoveConstructorFences(new_array);
+      size_t removed = HConstructorFence::RemoveConstructorFences(new_array);
+      MaybeRecordStat(stats_,
+                      MethodCompilationStat::kConstructorFenceRemovedLSE,
+                      removed);
 
       if (!new_array->HasNonEnvironmentUses()) {
         new_array->RemoveEnvironmentUsers();
@@ -139,7 +151,7 @@ class LSEVisitor : public HGraphVisitor {
   void HandleLoopSideEffects(HBasicBlock* block) {
     DCHECK(block->IsLoopHeader());
     int block_id = block->GetBlockId();
-    ArenaVector<HInstruction*>& heap_values = heap_values_for_[block_id];
+    ScopedArenaVector<HInstruction*>& heap_values = heap_values_for_[block_id];
 
     // Don't eliminate loads in irreducible loops. This is safe for singletons, because
     // they are always used by the non-eliminated loop-phi.
@@ -153,7 +165,7 @@ class LSEVisitor : public HGraphVisitor {
     }
 
     HBasicBlock* pre_header = block->GetLoopInformation()->GetPreHeader();
-    ArenaVector<HInstruction*>& pre_header_heap_values =
+    ScopedArenaVector<HInstruction*>& pre_header_heap_values =
         heap_values_for_[pre_header->GetBlockId()];
 
     // Inherit the values from pre-header.
@@ -184,12 +196,12 @@ class LSEVisitor : public HGraphVisitor {
   }
 
   void MergePredecessorValues(HBasicBlock* block) {
-    const ArenaVector<HBasicBlock*>& predecessors = block->GetPredecessors();
+    ArrayRef<HBasicBlock* const> predecessors(block->GetPredecessors());
     if (predecessors.size() == 0) {
       return;
     }
 
-    ArenaVector<HInstruction*>& heap_values = heap_values_for_[block->GetBlockId()];
+    ScopedArenaVector<HInstruction*>& heap_values = heap_values_for_[block->GetBlockId()];
     for (size_t i = 0; i < heap_values.size(); i++) {
       HInstruction* merged_value = nullptr;
       // Whether merged_value is a result that's merged from all predecessors.
@@ -227,7 +239,8 @@ class LSEVisitor : public HGraphVisitor {
         // or the heap value may be needed after method return or deoptimization.
         // Keep the last store in each predecessor since future loads cannot be eliminated.
         for (HBasicBlock* predecessor : predecessors) {
-          ArenaVector<HInstruction*>& pred_values = heap_values_for_[predecessor->GetBlockId()];
+          ScopedArenaVector<HInstruction*>& pred_values =
+              heap_values_for_[predecessor->GetBlockId()];
           KeepIfIsStore(pred_values[i]);
         }
       }
@@ -264,21 +277,22 @@ class LSEVisitor : public HGraphVisitor {
     }
   }
 
-  HInstruction* GetDefaultValue(Primitive::Type type) {
+  HInstruction* GetDefaultValue(DataType::Type type) {
     switch (type) {
-      case Primitive::kPrimNot:
+      case DataType::Type::kReference:
         return GetGraph()->GetNullConstant();
-      case Primitive::kPrimBoolean:
-      case Primitive::kPrimByte:
-      case Primitive::kPrimChar:
-      case Primitive::kPrimShort:
-      case Primitive::kPrimInt:
+      case DataType::Type::kBool:
+      case DataType::Type::kUint8:
+      case DataType::Type::kInt8:
+      case DataType::Type::kUint16:
+      case DataType::Type::kInt16:
+      case DataType::Type::kInt32:
         return GetGraph()->GetIntConstant(0);
-      case Primitive::kPrimLong:
+      case DataType::Type::kInt64:
         return GetGraph()->GetLongConstant(0);
-      case Primitive::kPrimFloat:
+      case DataType::Type::kFloat32:
         return GetGraph()->GetFloatConstant(0);
-      case Primitive::kPrimDouble:
+      case DataType::Type::kFloat64:
         return GetGraph()->GetDoubleConstant(0);
       default:
         UNREACHABLE();
@@ -295,7 +309,7 @@ class LSEVisitor : public HGraphVisitor {
     size_t idx = heap_location_collector_.FindHeapLocationIndex(
         ref_info, offset, index, declaring_class_def_index);
     DCHECK_NE(idx, HeapLocationCollector::kHeapLocationNotFound);
-    ArenaVector<HInstruction*>& heap_values =
+    ScopedArenaVector<HInstruction*>& heap_values =
         heap_values_for_[instruction->GetBlock()->GetBlockId()];
     HInstruction* heap_value = heap_values[idx];
     if (heap_value == kDefaultHeapValue) {
@@ -321,8 +335,7 @@ class LSEVisitor : public HGraphVisitor {
       // This acts like GVN but with better aliasing analysis.
       heap_values[idx] = instruction;
     } else {
-      if (Primitive::PrimitiveKind(heap_value->GetType())
-              != Primitive::PrimitiveKind(instruction->GetType())) {
+      if (DataType::Kind(heap_value->GetType()) != DataType::Kind(instruction->GetType())) {
         // The only situation where the same heap location has different type is when
         // we do an array get on an instruction that originates from the null constant
         // (the null could be behind a field access, an array access, a null check or
@@ -362,7 +375,7 @@ class LSEVisitor : public HGraphVisitor {
     size_t idx = heap_location_collector_.FindHeapLocationIndex(
         ref_info, offset, index, declaring_class_def_index);
     DCHECK_NE(idx, HeapLocationCollector::kHeapLocationNotFound);
-    ArenaVector<HInstruction*>& heap_values =
+    ScopedArenaVector<HInstruction*>& heap_values =
         heap_values_for_[instruction->GetBlock()->GetBlockId()];
     HInstruction* heap_value = heap_values[idx];
     bool same_value = false;
@@ -489,7 +502,7 @@ class LSEVisitor : public HGraphVisitor {
   }
 
   void VisitDeoptimize(HDeoptimize* instruction) {
-    const ArenaVector<HInstruction*>& heap_values =
+    const ScopedArenaVector<HInstruction*>& heap_values =
         heap_values_for_[instruction->GetBlock()->GetBlockId()];
     for (HInstruction* heap_value : heap_values) {
       // Filter out fake instructions before checking instruction kind below.
@@ -516,7 +529,7 @@ class LSEVisitor : public HGraphVisitor {
   }
 
   void HandleInvoke(HInstruction* invoke) {
-    ArenaVector<HInstruction*>& heap_values =
+    ScopedArenaVector<HInstruction*>& heap_values =
         heap_values_for_[invoke->GetBlock()->GetBlockId()];
     for (size_t i = 0; i < heap_values.size(); i++) {
       ReferenceInfo* ref_info = heap_location_collector_.GetHeapLocation(i)->GetReferenceInfo();
@@ -528,23 +541,7 @@ class LSEVisitor : public HGraphVisitor {
     }
   }
 
-  void VisitInvokeStaticOrDirect(HInvokeStaticOrDirect* invoke) OVERRIDE {
-    HandleInvoke(invoke);
-  }
-
-  void VisitInvokeVirtual(HInvokeVirtual* invoke) OVERRIDE {
-    HandleInvoke(invoke);
-  }
-
-  void VisitInvokeInterface(HInvokeInterface* invoke) OVERRIDE {
-    HandleInvoke(invoke);
-  }
-
-  void VisitInvokeUnresolved(HInvokeUnresolved* invoke) OVERRIDE {
-    HandleInvoke(invoke);
-  }
-
-  void VisitInvokePolymorphic(HInvokePolymorphic* invoke) OVERRIDE {
+  void VisitInvoke(HInvoke* invoke) OVERRIDE {
     HandleInvoke(invoke);
   }
 
@@ -583,7 +580,7 @@ class LSEVisitor : public HGraphVisitor {
         !new_instance->NeedsChecks()) {
       singleton_new_instances_.push_back(new_instance);
     }
-    ArenaVector<HInstruction*>& heap_values =
+    ScopedArenaVector<HInstruction*>& heap_values =
         heap_values_for_[new_instance->GetBlock()->GetBlockId()];
     for (size_t i = 0; i < heap_values.size(); i++) {
       HInstruction* ref =
@@ -605,7 +602,7 @@ class LSEVisitor : public HGraphVisitor {
     if (ref_info->IsSingletonAndRemovable()) {
       singleton_new_arrays_.push_back(new_array);
     }
-    ArenaVector<HInstruction*>& heap_values =
+    ScopedArenaVector<HInstruction*>& heap_values =
         heap_values_for_[new_array->GetBlock()->GetBlockId()];
     for (size_t i = 0; i < heap_values.size(); i++) {
       HeapLocation* location = heap_location_collector_.GetHeapLocation(i);
@@ -632,20 +629,23 @@ class LSEVisitor : public HGraphVisitor {
   const HeapLocationCollector& heap_location_collector_;
   const SideEffectsAnalysis& side_effects_;
 
+  // Use local allocator for allocating memory.
+  ScopedArenaAllocator allocator_;
+
   // One array of heap values for each block.
-  ArenaVector<ArenaVector<HInstruction*>> heap_values_for_;
+  ScopedArenaVector<ScopedArenaVector<HInstruction*>> heap_values_for_;
 
   // We record the instructions that should be eliminated but may be
   // used by heap locations. They'll be removed in the end.
-  ArenaVector<HInstruction*> removed_loads_;
-  ArenaVector<HInstruction*> substitute_instructions_for_loads_;
+  ScopedArenaVector<HInstruction*> removed_loads_;
+  ScopedArenaVector<HInstruction*> substitute_instructions_for_loads_;
 
   // Stores in this list may be removed from the list later when it's
   // found that the store cannot be eliminated.
-  ArenaVector<HInstruction*> possibly_removed_stores_;
+  ScopedArenaVector<HInstruction*> possibly_removed_stores_;
 
-  ArenaVector<HInstruction*> singleton_new_instances_;
-  ArenaVector<HInstruction*> singleton_new_arrays_;
+  ScopedArenaVector<HInstruction*> singleton_new_instances_;
+  ScopedArenaVector<HInstruction*> singleton_new_arrays_;
 
   DISALLOW_COPY_AND_ASSIGN(LSEVisitor);
 };
@@ -663,7 +663,12 @@ void LoadStoreElimination::Run() {
     return;
   }
 
-  LSEVisitor lse_visitor(graph_, heap_location_collector, side_effects_);
+  // TODO: analyze VecLoad/VecStore better.
+  if (graph_->HasSIMD()) {
+    return;
+  }
+
+  LSEVisitor lse_visitor(graph_, heap_location_collector, side_effects_, stats_);
   for (HBasicBlock* block : graph_->GetReversePostOrder()) {
     lse_visitor.VisitBasicBlock(block);
   }

@@ -30,8 +30,8 @@
 #include "handle.h"
 #include "instruction_flags.h"
 #include "method_reference.h"
-#include "register_line.h"
 #include "reg_type_cache.h"
+#include "register_line.h"
 #include "verifier_enums.h"
 
 namespace art {
@@ -67,7 +67,7 @@ enum RegisterTrackingMode {
 // execution of that instruction.
 class PcToRegisterLineTable {
  public:
-  explicit PcToRegisterLineTable(ScopedArenaAllocator& arena);
+  explicit PcToRegisterLineTable(ScopedArenaAllocator& allocator);
   ~PcToRegisterLineTable();
 
   // Initialize the RegisterTable. Every instruction address can have a different set of information
@@ -221,8 +221,8 @@ class MethodVerifier {
     return IsConstructor() && !IsStatic();
   }
 
-  ScopedArenaAllocator& GetArena() {
-    return arena_;
+  ScopedArenaAllocator& GetScopedAllocator() {
+    return allocator_;
   }
 
  private:
@@ -404,6 +404,10 @@ class MethodVerifier {
   /* Ensure that the wide register index is valid for this code item. */
   bool CheckWideRegisterIndex(uint32_t idx);
 
+  // Perform static checks on an instruction referencing a CallSite. All we do here is ensure that
+  // the call site index is in the valid range.
+  bool CheckCallSiteIndex(uint32_t idx);
+
   // Perform static checks on a field Get or set instruction. All we do here is ensure that the
   // field index is in the valid range.
   bool CheckFieldIndex(uint32_t idx);
@@ -411,6 +415,10 @@ class MethodVerifier {
   // Perform static checks on a method invocation instruction. All we do here is ensure that the
   // method index is in the valid range.
   bool CheckMethodIndex(uint32_t idx);
+
+  // Perform static checks on an instruction referencing a constant method handle. All we do here
+  // is ensure that the method index is in the valid range.
+  bool CheckMethodHandleIndex(uint32_t idx);
 
   // Perform static checks on a "new-instance" instruction. Specifically, make sure the class
   // reference isn't for an array class.
@@ -576,9 +584,14 @@ class MethodVerifier {
   void VerifyQuickFieldAccess(const Instruction* inst, const RegType& insn_type, bool is_primitive)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
-  // Resolves a class based on an index and performs access checks to ensure the referrer can
-  // access the resolved class.
-  const RegType& ResolveClassAndCheckAccess(dex::TypeIndex class_idx)
+  enum class CheckAccess {  // private.
+    kYes,
+    kNo,
+  };
+  // Resolves a class based on an index and, if C is kYes, performs access checks to ensure
+  // the referrer can access the resolved class.
+  template <CheckAccess C>
+  const RegType& ResolveClass(dex::TypeIndex class_idx)
       REQUIRES_SHARED(Locks::mutator_lock_);
 
   /*
@@ -698,7 +711,7 @@ class MethodVerifier {
 
   // Arena allocator.
   ArenaStack arena_stack_;
-  ScopedArenaAllocator arena_;
+  ScopedArenaAllocator allocator_;
 
   RegTypeCache reg_types_;
 

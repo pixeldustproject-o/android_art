@@ -52,7 +52,7 @@ static constexpr size_t kJitStressDefaultCompileThreshold     = 100;    // Fast-
 static constexpr size_t kJitSlowStressDefaultCompileThreshold = 2;      // Slow-debug build.
 
 // JIT compiler
-void* Jit::jit_library_handle_= nullptr;
+void* Jit::jit_library_handle_ = nullptr;
 void* Jit::jit_compiler_handle_ = nullptr;
 void* (*Jit::jit_load_)(bool*) = nullptr;
 void (*Jit::jit_unload_)(void*) = nullptr;
@@ -144,9 +144,8 @@ JitOptions* JitOptions::CreateFromRuntimeArguments(const RuntimeArgumentMap& opt
   return jit_options;
 }
 
-bool Jit::ShouldUsePriorityThreadWeight() {
-  return Runtime::Current()->InJankPerceptibleProcessState()
-      && Thread::Current()->IsJitSensitiveThread();
+bool Jit::ShouldUsePriorityThreadWeight(Thread* self) {
+  return self->IsJitSensitiveThread() && Runtime::Current()->InJankPerceptibleProcessState();
 }
 
 void Jit::DumpInfo(std::ostream& os) {
@@ -491,10 +490,10 @@ bool Jit::MaybeDoOnStackReplacement(Thread* thread,
       return false;
     }
 
-    // Before allowing the jump, make sure the debugger is not active to avoid jumping from
-    // interpreter to OSR while e.g. single stepping. Note that we could selectively disable
-    // OSR when single stepping, but that's currently hard to know at this point.
-    if (Dbg::IsDebuggerActive()) {
+    // Before allowing the jump, make sure no code is actively inspecting the method to avoid
+    // jumping from interpreter to OSR while e.g. single stepping. Note that we could selectively
+    // disable OSR when single stepping, but that's currently hard to know at this point.
+    if (Runtime::Current()->GetRuntimeCallbacks()->IsMethodBeingInspected(method)) {
       return false;
     }
 
@@ -653,7 +652,7 @@ void Jit::AddSamples(Thread* self, ArtMethod* method, uint16_t count, bool with_
   DCHECK_LE(priority_thread_weight_, hot_method_threshold_);
 
   int32_t starting_count = method->GetCounter();
-  if (Jit::ShouldUsePriorityThreadWeight()) {
+  if (Jit::ShouldUsePriorityThreadWeight(self)) {
     count *= priority_thread_weight_;
   }
   int32_t new_count = starting_count + count;   // int32 here to avoid wrap-around;

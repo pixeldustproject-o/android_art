@@ -20,13 +20,15 @@
 #include "arch/arm64/instruction_set_features_arm64.h"
 #include "art_method.h"
 #include "base/bit_utils.h"
-#include "compiled_method.h"
+#include "compiled_method-inl.h"
 #include "driver/compiler_driver.h"
 #include "entrypoints/quick/quick_entrypoints_enum.h"
+#include "heap_poisoning.h"
+#include "linker/linker_patch.h"
 #include "linker/output_stream.h"
 #include "lock_word.h"
-#include "mirror/object.h"
 #include "mirror/array-inl.h"
+#include "mirror/object.h"
 #include "oat.h"
 #include "oat_quick_method_header.h"
 #include "read_barrier.h"
@@ -61,8 +63,10 @@ inline bool IsAdrpPatch(const LinkerPatch& patch) {
     case LinkerPatch::Type::kMethodRelative:
     case LinkerPatch::Type::kMethodBssEntry:
     case LinkerPatch::Type::kTypeRelative:
+    case LinkerPatch::Type::kTypeClassTable:
     case LinkerPatch::Type::kTypeBssEntry:
     case LinkerPatch::Type::kStringRelative:
+    case LinkerPatch::Type::kStringInternTable:
     case LinkerPatch::Type::kStringBssEntry:
       return patch.LiteralOffset() == patch.PcInsnOffset();
   }
@@ -265,7 +269,9 @@ void Arm64RelativePatcher::PatchPcRelativeReference(std::vector<uint8_t>* code,
     } else {
       // LDR/STR 32-bit or 64-bit with imm12 == 0 (unset).
       DCHECK(patch.GetType() == LinkerPatch::Type::kMethodBssEntry ||
+             patch.GetType() == LinkerPatch::Type::kTypeClassTable ||
              patch.GetType() == LinkerPatch::Type::kTypeBssEntry ||
+             patch.GetType() == LinkerPatch::Type::kStringInternTable ||
              patch.GetType() == LinkerPatch::Type::kStringBssEntry) << patch.GetType();
       DCHECK_EQ(insn & 0xbfbffc00, 0xb9000000) << std::hex << insn;
     }
@@ -505,8 +511,8 @@ void Arm64RelativePatcher::CompileBakerReadBarrierThunk(arm64::Arm64Assembler& a
 
 std::vector<uint8_t> Arm64RelativePatcher::CompileThunk(const ThunkKey& key) {
   ArenaPool pool;
-  ArenaAllocator arena(&pool);
-  arm64::Arm64Assembler assembler(&arena);
+  ArenaAllocator allocator(&pool);
+  arm64::Arm64Assembler assembler(&allocator);
 
   switch (key.GetType()) {
     case ThunkType::kMethodCall: {
@@ -529,6 +535,35 @@ std::vector<uint8_t> Arm64RelativePatcher::CompileThunk(const ThunkKey& key) {
   MemoryRegion code(thunk_code.data(), thunk_code.size());
   assembler.FinalizeInstructions(code);
   return thunk_code;
+}
+
+std::string Arm64RelativePatcher::GetThunkDebugName(const ThunkKey& key) {
+  switch (key.GetType()) {
+    case ThunkType::kMethodCall:
+      return "MethodCallThunk";
+
+    case ThunkType::kBakerReadBarrier: {
+      uint32_t encoded_data = key.GetCustomValue1();
+      BakerReadBarrierKind kind = BakerReadBarrierKindField::Decode(encoded_data);
+      std::ostringstream oss;
+      oss << "BakerReadBarrierThunk";
+      switch (kind) {
+        case BakerReadBarrierKind::kField:
+          oss << "Field_r" << BakerReadBarrierFirstRegField::Decode(encoded_data)
+              << "_r" << BakerReadBarrierSecondRegField::Decode(encoded_data);
+          break;
+        case BakerReadBarrierKind::kArray:
+          oss << "Array_r" << BakerReadBarrierFirstRegField::Decode(encoded_data);
+          DCHECK_EQ(kInvalidEncodedReg, BakerReadBarrierSecondRegField::Decode(encoded_data));
+          break;
+        case BakerReadBarrierKind::kGcRoot:
+          oss << "GcRoot_r" << BakerReadBarrierFirstRegField::Decode(encoded_data);
+          DCHECK_EQ(kInvalidEncodedReg, BakerReadBarrierSecondRegField::Decode(encoded_data));
+          break;
+      }
+      return oss.str();
+    }
+  }
 }
 
 #undef __

@@ -22,14 +22,14 @@
 #include "base/callee_save_type.h"
 #include "base/enums.h"
 #include "class_linker.h"
-#include "compiled_method.h"
+#include "compiled_method-inl.h"
 #include "dex/quick_compiler_callbacks.h"
 #include "dex/verification_results.h"
 #include "driver/compiler_driver.h"
 #include "driver/compiler_options.h"
 #include "interpreter/interpreter.h"
-#include "mirror/class_loader.h"
 #include "mirror/class-inl.h"
+#include "mirror/class_loader.h"
 #include "mirror/dex_cache.h"
 #include "mirror/object-inl.h"
 #include "oat_quick_method_header.h"
@@ -95,7 +95,7 @@ void CommonCompilerTest::MakeExecutable(ArtMethod* method) {
     const void* method_code = CompiledMethod::CodePointer(code_ptr,
                                                           compiled_method->GetInstructionSet());
     LOG(INFO) << "MakeExecutable " << method->PrettyMethod() << " code=" << method_code;
-    class_linker_->SetEntryPointsToCompiledCode(method, method_code);
+    method->SetEntryPointFromQuickCompiledCode(method_code);
   } else {
     // No code? You must mean to go into the interpreter.
     // Or the generic JNI...

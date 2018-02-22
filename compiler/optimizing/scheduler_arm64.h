@@ -83,8 +83,8 @@ class SchedulingLatencyVisitorARM64 : public SchedulingLatencyVisitor {
   M(SuspendCheck         , unused)                   \
   M(TypeConversion       , unused)                   \
   M(VecReplicateScalar   , unused)                   \
-  M(VecSetScalars        , unused)                   \
-  M(VecSumReduce         , unused)                   \
+  M(VecExtractScalar     , unused)                   \
+  M(VecReduce            , unused)                   \
   M(VecCnv               , unused)                   \
   M(VecNeg               , unused)                   \
   M(VecAbs               , unused)                   \
@@ -103,6 +103,7 @@ class SchedulingLatencyVisitorARM64 : public SchedulingLatencyVisitor {
   M(VecShl               , unused)                   \
   M(VecShr               , unused)                   \
   M(VecUShr              , unused)                   \
+  M(VecSetScalars        , unused)                   \
   M(VecMultiplyAccumulate, unused)                   \
   M(VecLoad              , unused)                   \
   M(VecStore             , unused)
@@ -130,8 +131,8 @@ class SchedulingLatencyVisitorARM64 : public SchedulingLatencyVisitor {
 
 class HSchedulerARM64 : public HScheduler {
  public:
-  HSchedulerARM64(ArenaAllocator* arena, SchedulingNodeSelector* selector)
-      : HScheduler(arena, &arm64_latency_visitor_, selector) {}
+  HSchedulerARM64(ScopedArenaAllocator* allocator, SchedulingNodeSelector* selector)
+      : HScheduler(allocator, &arm64_latency_visitor_, selector) {}
   ~HSchedulerARM64() OVERRIDE {}
 
   bool IsSchedulable(const HInstruction* instruction) const OVERRIDE {

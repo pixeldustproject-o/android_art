@@ -17,19 +17,19 @@
 #ifndef ART_COMPILER_COMPILER_H_
 #define ART_COMPILER_COMPILER_H_
 
-#include "dex_file.h"
 #include "base/mutex.h"
+#include "dex_file.h"
 #include "os.h"
 
 namespace art {
 
 namespace jit {
-  class JitCodeCache;
-  class JitLogger;
+class JitCodeCache;
+class JitLogger;
 }  // namespace jit
 namespace mirror {
-  class ClassLoader;
-  class DexCache;
+class ClassLoader;
+class DexCache;
 }  // namespace mirror
 
 class ArtMethod;

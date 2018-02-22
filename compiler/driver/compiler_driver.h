@@ -22,6 +22,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "android-base/strings.h"
+
 #include "arch/instruction_set.h"
 #include "base/array_ref.h"
 #include "base/bit_utils.h"
@@ -33,7 +35,6 @@
 #include "dex_file_types.h"
 #include "driver/compiled_method_storage.h"
 #include "jit/profile_compilation_info.h"
-#include "invoke_type.h"
 #include "method_reference.h"
 #include "mirror/class.h"  // For mirror::Class::Status.
 #include "os.h"
@@ -60,6 +61,7 @@ class DexCompilationUnit;
 struct InlineIGetIPutData;
 class InstructionSetFeatures;
 class InternTable;
+enum InvokeType : uint32_t;
 class ParallelCompilationManager;
 class ScopedObjectAccess;
 template <class Allocator> class SrcMap;
@@ -105,6 +107,9 @@ class CompilerDriver {
   // Set dex files that will be stored in the oat file after being compiled.
   void SetDexFilesForOatFile(const std::vector<const DexFile*>& dex_files);
 
+  // Set dex files classpath.
+  void SetClasspathDexFiles(const std::vector<const DexFile*>& dex_files);
+
   // Get dex file that will be stored in the oat file after being compiled.
   ArrayRef<const DexFile* const> GetDexFilesForOatFile() const {
     return ArrayRef<const DexFile* const>(dex_files_for_oat_file_);
@@ -149,7 +154,8 @@ class CompilerDriver {
   std::unique_ptr<const std::vector<uint8_t>> CreateQuickResolutionTrampoline() const;
   std::unique_ptr<const std::vector<uint8_t>> CreateQuickToInterpreterBridge() const;
 
-  bool GetCompiledClass(ClassReference ref, mirror::Class::Status* status) const;
+  mirror::Class::Status GetClassStatus(const ClassReference& ref) const;
+  bool GetCompiledClass(const ClassReference& ref, mirror::Class::Status* status) const;
 
   CompiledMethod* GetCompiledMethod(MethodReference ref) const;
   size_t GetNonRelativeLinkerPatchCount() const;
@@ -332,7 +338,7 @@ class CompilerDriver {
   // according to the profile file.
   bool ShouldVerifyClassBasedOnProfile(const DexFile& dex_file, uint16_t class_idx) const;
 
-  void RecordClassStatus(ClassReference ref, mirror::Class::Status status);
+  void RecordClassStatus(const ClassReference& ref, mirror::Class::Status status);
 
   // Checks if the specified method has been verified without failures. Returns
   // false if the method is not in the verification results (GetVerificationResults).
@@ -377,7 +383,13 @@ class CompilerDriver {
     return profile_compilation_info_;
   }
 
-  bool CanAssumeVerified(ClassReference ref) const;
+  // Is `boot_image_filename` the name of a core image (small boot
+  // image used for ART testing only)?
+  static bool IsCoreImageFilename(const std::string& boot_image_filename) {
+    // TODO: This is under-approximating...
+    return android::base::EndsWith(boot_image_filename, "core.art")
+        || android::base::EndsWith(boot_image_filename, "core-optimizing.art");
+  }
 
  private:
   void PreCompile(jobject class_loader,
@@ -478,10 +490,12 @@ class CompilerDriver {
       GUARDED_BY(requires_constructor_barrier_lock_);
 
   // All class references that this compiler has compiled. Indexed by class defs.
-  using ClassStateTable = AtomicDexRefMap<mirror::Class::Status>;
+  using ClassStateTable = AtomicDexRefMap<ClassReference, mirror::Class::Status>;
   ClassStateTable compiled_classes_;
+  // All class references that are in the classpath. Indexed by class defs.
+  ClassStateTable classpath_classes_;
 
-  typedef AtomicDexRefMap<CompiledMethod*> MethodTable;
+  typedef AtomicDexRefMap<MethodReference, CompiledMethod*> MethodTable;
 
  private:
   // All method references that this compiler has compiled.

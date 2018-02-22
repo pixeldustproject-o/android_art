@@ -30,6 +30,7 @@
 #include "mirror/method.h"
 #include "reflection.h"
 #include "thread.h"
+#include "well_known_classes.h"
 
 namespace art {
 
@@ -695,8 +696,7 @@ mirror::Object* CreateAnnotationMember(const ClassData& klass,
   if (annotation_method == nullptr) {
     return nullptr;
   }
-  Handle<mirror::Class> method_return(hs.NewHandle(
-      annotation_method->GetReturnType(true /* resolve */)));
+  Handle<mirror::Class> method_return(hs.NewHandle(annotation_method->ResolveReturnType()));
 
   DexFile::AnnotationValue annotation_value;
   if (!ProcessAnnotationValue<false>(klass,
@@ -1074,7 +1074,7 @@ mirror::Object* GetAnnotationDefaultValue(ArtMethod* method) {
   }
   DexFile::AnnotationValue annotation_value;
   StackHandleScope<1> hs(Thread::Current());
-  Handle<mirror::Class> return_type(hs.NewHandle(method->GetReturnType(true /* resolve */)));
+  Handle<mirror::Class> return_type(hs.NewHandle(method->ResolveReturnType()));
   if (!ProcessAnnotationValue<false>(klass,
                                      &annotation,
                                      &annotation_value,

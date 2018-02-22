@@ -35,17 +35,17 @@
 #include "base/stringpiece.h"
 #include "base/unix_file/fd_file.h"
 #include "base/unix_file/random_access_file_utils.h"
-#include "elf_utils.h"
 #include "elf_file.h"
 #include "elf_file_impl.h"
+#include "elf_utils.h"
 #include "gc/space/image_space.h"
 #include "image-inl.h"
 #include "intern_table.h"
 #include "mirror/dex_cache.h"
 #include "mirror/executable.h"
+#include "mirror/method.h"
 #include "mirror/object-inl.h"
 #include "mirror/object-refvisitor-inl.h"
-#include "mirror/method.h"
 #include "mirror/reference.h"
 #include "noop_compiler_callbacks.h"
 #include "offsets.h"
@@ -468,7 +468,10 @@ class PatchOat::FixupRootVisitor : public RootVisitor {
 };
 
 void PatchOat::PatchInternedStrings(const ImageHeader* image_header) {
-  const auto& section = image_header->GetImageSection(ImageHeader::kSectionInternedStrings);
+  const auto& section = image_header->GetInternedStringsSection();
+  if (section.Size() == 0) {
+    return;
+  }
   InternTable temp_table;
   // Note that we require that ReadFromMemory does not make an internal copy of the elements.
   // This also relies on visit roots not doing any verification which could fail after we update
@@ -479,7 +482,7 @@ void PatchOat::PatchInternedStrings(const ImageHeader* image_header) {
 }
 
 void PatchOat::PatchClassTable(const ImageHeader* image_header) {
-  const auto& section = image_header->GetImageSection(ImageHeader::kSectionClassTable);
+  const auto& section = image_header->GetClassTableSection();
   if (section.Size() == 0) {
     return;
   }
@@ -686,8 +689,6 @@ void PatchOat::FixupMethod(ArtMethod* object, ArtMethod* copy) {
   // Just update the entry points if it looks like we should.
   // TODO: sanity check all the pointers' values
   copy->SetDeclaringClass(RelocatedAddressOfPointer(object->GetDeclaringClass()));
-  copy->SetDexCacheResolvedMethods(
-      RelocatedAddressOfPointer(object->GetDexCacheResolvedMethods(pointer_size)), pointer_size);
   copy->SetEntryPointFromQuickCompiledCodePtrSize(RelocatedAddressOfPointer(
       object->GetEntryPointFromQuickCompiledCodePtrSize(pointer_size)), pointer_size);
   // No special handling for IMT conflict table since all pointers are moved by the same offset.

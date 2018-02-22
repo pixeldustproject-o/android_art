@@ -19,12 +19,14 @@
 #ifndef ART_DEXLAYOUT_DEX_IR_H_
 #define ART_DEXLAYOUT_DEX_IR_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <vector>
-#include <stdint.h>
 
 #include "base/stl_util.h"
 #include "dex_file-inl.h"
+#include "dex_file_types.h"
 #include "leb128.h"
 #include "utf.h"
 
@@ -249,7 +251,7 @@ class Collections {
   }
 
   StringId* GetStringIdOrNullPtr(uint32_t index) {
-    return index == DexFile::kDexNoIndex ? nullptr : GetStringId(index);
+    return index == dex::kDexNoIndex ? nullptr : GetStringId(index);
   }
   TypeId* GetTypeIdOrNullPtr(uint16_t index) {
     return index == DexFile::kDexNoIndex16 ? nullptr : GetTypeId(index);
@@ -944,6 +946,11 @@ class CodeItem : public Item {
   CodeFixups* GetCodeFixups() const { return fixups_.get(); }
 
   void Accept(AbstractDispatcher* dispatch) { dispatch->Dispatch(this); }
+
+  IterationRange<DexInstructionIterator> Instructions() const {
+    return MakeIterationRange(DexInstructionIterator(Insns()),
+                              DexInstructionIterator(Insns() + InsnsSize()));
+  }
 
  private:
   uint16_t registers_size_;

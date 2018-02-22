@@ -24,6 +24,7 @@
 #include <set>
 #include <string>
 #include <utility>
+#include <memory>
 #include <vector>
 
 #include "arch/instruction_set.h"
@@ -43,31 +44,31 @@
 namespace art {
 
 namespace gc {
-  class AbstractSystemWeakHolder;
-  class Heap;
+class AbstractSystemWeakHolder;
+class Heap;
 }  // namespace gc
 
 namespace jit {
-  class Jit;
-  class JitOptions;
+class Jit;
+class JitOptions;
 }  // namespace jit
 
 namespace mirror {
-  class Array;
-  class ClassLoader;
-  class DexCache;
-  template<class T> class ObjectArray;
-  template<class T> class PrimitiveArray;
-  typedef PrimitiveArray<int8_t> ByteArray;
-  class String;
-  class Throwable;
+class Array;
+class ClassLoader;
+class DexCache;
+template<class T> class ObjectArray;
+template<class T> class PrimitiveArray;
+typedef PrimitiveArray<int8_t> ByteArray;
+class String;
+class Throwable;
 }  // namespace mirror
 namespace ti {
-  class Agent;
+class Agent;
 }  // namespace ti
 namespace verifier {
-  class MethodVerifier;
-  enum class VerifyMode : int8_t;
+class MethodVerifier;
+enum class VerifyMode : int8_t;
 }  // namespace verifier
 class ArenaPool;
 class ArtMethod;
@@ -453,12 +454,17 @@ class Runtime {
                        const std::string& profile_output_filename);
 
   // Transaction support.
-  bool IsActiveTransaction() const {
-    return preinitialization_transaction_ != nullptr;
-  }
-  void EnterTransactionMode(Transaction* transaction);
+  bool IsActiveTransaction() const;
+  void EnterTransactionMode();
+  void EnterTransactionMode(bool strict, mirror::Class* root);
   void ExitTransactionMode();
+  void RollbackAllTransactions() REQUIRES_SHARED(Locks::mutator_lock_);
+  // Transaction rollback and exit transaction are always done together, it's convenience to
+  // do them in one function.
+  void RollbackAndExitTransactionMode() REQUIRES_SHARED(Locks::mutator_lock_);
   bool IsTransactionAborted() const;
+  const std::unique_ptr<Transaction>& GetTransaction() const;
+  bool IsActiveStrictTransactionMode() const;
 
   void AbortTransactionAndThrowAbortError(Thread* self, const std::string& abort_message)
       REQUIRES_SHARED(Locks::mutator_lock_);
@@ -508,6 +514,7 @@ class Runtime {
     return !implicit_so_checks_;
   }
 
+  void DisableVerifier();
   bool IsVerificationEnabled() const;
   bool IsVerificationSoftFail() const;
 
@@ -652,6 +659,10 @@ class Runtime {
 
   RuntimeCallbacks* GetRuntimeCallbacks();
 
+  bool HasLoadedPlugins() const {
+    return !plugins_.empty();
+  }
+
   void InitThreadGroups(Thread* self);
 
   void SetDumpGCPerformanceOnShutdown(bool value) {
@@ -714,7 +725,7 @@ class Runtime {
   static constexpr int kProfileForground = 0;
   static constexpr int kProfileBackground = 1;
 
-  static constexpr uint32_t kCalleeSaveSize = 4u;
+  static constexpr uint32_t kCalleeSaveSize = 6u;
 
   // 64 bit so that we can share the same asm offsets for both 32 and 64 bits.
   uint64_t callee_save_methods_[kCalleeSaveSize];
@@ -842,8 +853,11 @@ class Runtime {
   // If true, then we dump the GC cumulative timings on shutdown.
   bool dump_gc_performance_on_shutdown_;
 
-  // Transaction used for pre-initializing classes at compilation time.
-  Transaction* preinitialization_transaction_;
+  // Transactions used for pre-initializing classes at compilation time.
+  // Support nested transactions, maintain a list containing all transactions. Transactions are
+  // handled under a stack discipline. Because GC needs to go over all transactions, we choose list
+  // as substantial data structure instead of stack.
+  std::list<std::unique_ptr<Transaction>> preinitialization_transactions_;
 
   // If kNone, verification is disabled. kEnable by default.
   verifier::VerifyMode verify_;

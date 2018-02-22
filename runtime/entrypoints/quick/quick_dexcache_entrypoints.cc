@@ -17,16 +17,16 @@
 #include "art_method-inl.h"
 #include "base/callee_save_type.h"
 #include "callee_save_frame.h"
-#include "entrypoints/entrypoint_utils-inl.h"
 #include "class_linker-inl.h"
 #include "class_table-inl.h"
 #include "dex_file-inl.h"
 #include "dex_file_types.h"
+#include "entrypoints/entrypoint_utils-inl.h"
 #include "gc/heap.h"
 #include "mirror/class-inl.h"
 #include "mirror/class_loader.h"
-#include "mirror/object_array-inl.h"
 #include "mirror/object-inl.h"
+#include "mirror/object_array-inl.h"
 #include "oat_file.h"
 #include "runtime.h"
 
@@ -65,8 +65,8 @@ extern "C" mirror::Class* artInitializeStaticStorageFromCode(uint32_t type_idx, 
   // A class may be accessing another class' fields when it doesn't have access, as access has been
   // given by inheritance.
   ScopedQuickEntrypointChecks sqec(self);
-  auto caller_and_outer = GetCalleeSaveMethodCallerAndOuterMethod(self,
-                                                                  CalleeSaveType::kSaveEverything);
+  auto caller_and_outer = GetCalleeSaveMethodCallerAndOuterMethod(
+      self, CalleeSaveType::kSaveEverythingForClinit);
   ArtMethod* caller = caller_and_outer.caller;
   mirror::Class* result =
       ResolveVerifyAndClinit(dex::TypeIndex(type_idx), caller, self, true, false);
@@ -80,8 +80,8 @@ extern "C" mirror::Class* artInitializeTypeFromCode(uint32_t type_idx, Thread* s
     REQUIRES_SHARED(Locks::mutator_lock_) {
   // Called when method->dex_cache_resolved_types_[] misses.
   ScopedQuickEntrypointChecks sqec(self);
-  auto caller_and_outer = GetCalleeSaveMethodCallerAndOuterMethod(self,
-                                                                  CalleeSaveType::kSaveEverything);
+  auto caller_and_outer = GetCalleeSaveMethodCallerAndOuterMethod(
+      self, CalleeSaveType::kSaveEverythingForClinit);
   ArtMethod* caller = caller_and_outer.caller;
   mirror::Class* result =
       ResolveVerifyAndClinit(dex::TypeIndex(type_idx), caller, self, false, false);

@@ -48,6 +48,7 @@
 #include "debugger.h"
 #include "dex_file-inl.h"
 #include "dex_file_annotations.h"
+#include "dex_file_types.h"
 #include "entrypoints/entrypoint_utils.h"
 #include "entrypoints/quick/quick_alloc_entrypoints.h"
 #include "gc/accounting/card_table-inl.h"
@@ -166,11 +167,13 @@ class DeoptimizationContextRecord {
                               bool is_reference,
                               bool from_code,
                               ObjPtr<mirror::Throwable> pending_exception,
+                              DeoptimizationMethodType method_type,
                               DeoptimizationContextRecord* link)
       : ret_val_(ret_val),
         is_reference_(is_reference),
         from_code_(from_code),
         pending_exception_(pending_exception.Ptr()),
+        deopt_method_type_(method_type),
         link_(link) {}
 
   JValue GetReturnValue() const { return ret_val_; }
@@ -184,6 +187,9 @@ class DeoptimizationContextRecord {
   }
   mirror::Object** GetPendingExceptionAsGCRoot() {
     return reinterpret_cast<mirror::Object**>(&pending_exception_);
+  }
+  DeoptimizationMethodType GetDeoptimizationMethodType() const {
+    return deopt_method_type_;
   }
 
  private:
@@ -199,6 +205,9 @@ class DeoptimizationContextRecord {
   // The exception that was pending before deoptimization (or null if there was no pending
   // exception).
   mirror::Throwable* pending_exception_;
+
+  // Whether the context was created for an (idempotent) runtime method.
+  const DeoptimizationMethodType deopt_method_type_;
 
   // A link to the previous DeoptimizationContextRecord.
   DeoptimizationContextRecord* const link_;
@@ -229,26 +238,30 @@ class StackedShadowFrameRecord {
 
 void Thread::PushDeoptimizationContext(const JValue& return_value,
                                        bool is_reference,
+                                       ObjPtr<mirror::Throwable> exception,
                                        bool from_code,
-                                       ObjPtr<mirror::Throwable> exception) {
+                                       DeoptimizationMethodType method_type) {
   DeoptimizationContextRecord* record = new DeoptimizationContextRecord(
       return_value,
       is_reference,
       from_code,
       exception,
+      method_type,
       tlsPtr_.deoptimization_context_stack);
   tlsPtr_.deoptimization_context_stack = record;
 }
 
 void Thread::PopDeoptimizationContext(JValue* result,
                                       ObjPtr<mirror::Throwable>* exception,
-                                      bool* from_code) {
+                                      bool* from_code,
+                                      DeoptimizationMethodType* method_type) {
   AssertHasDeoptimizationContext();
   DeoptimizationContextRecord* record = tlsPtr_.deoptimization_context_stack;
   tlsPtr_.deoptimization_context_stack = record->GetLink();
   result->SetJ(record->GetReturnValue().GetJ());
   *exception = record->GetPendingException();
   *from_code = record->GetFromCode();
+  *method_type = record->GetDeoptimizationMethodType();
   delete record;
 }
 
@@ -1724,7 +1737,7 @@ void Thread::DumpState(std::ostream& os, const Thread* thread, pid_t tid) {
           os << " \"" << mutex->GetName() << "\"";
           if (mutex->IsReaderWriterMutex()) {
             ReaderWriterMutex* rw_mutex = down_cast<ReaderWriterMutex*>(mutex);
-            if (rw_mutex->GetExclusiveOwnerTid() == static_cast<uint64_t>(tid)) {
+            if (rw_mutex->GetExclusiveOwnerTid() == tid) {
               os << "(exclusive held)";
             } else {
               os << "(shared held)";
@@ -2146,11 +2159,11 @@ void Thread::Destroy() {
     ScopedObjectAccess soa(self);
     // We may need to call user-supplied managed code, do this before final clean-up.
     HandleUncaughtExceptions(soa);
+    RemoveFromThreadGroup(soa);
     Runtime* runtime = Runtime::Current();
     if (runtime != nullptr) {
       runtime->GetRuntimeCallbacks()->ThreadDeath(self);
     }
-    RemoveFromThreadGroup(soa);
 
     // this.nativePeer = 0;
     if (Runtime::Current()->IsActiveTransaction()) {
@@ -2279,7 +2292,7 @@ bool Thread::HandleScopeContains(jobject obj) const {
   return tlsPtr_.managed_stack.ShadowFramesContain(hs_entry);
 }
 
-void Thread::HandleScopeVisitRoots(RootVisitor* visitor, uint32_t thread_id) {
+void Thread::HandleScopeVisitRoots(RootVisitor* visitor, pid_t thread_id) {
   BufferedRootVisitor<kDefaultBufferedRootCount> buffered_visitor(
       visitor, RootInfo(kRootNativeStack, thread_id));
   for (BaseHandleScope* cur = tlsPtr_.top_handle_scope; cur; cur = cur->GetLink()) {
@@ -2409,7 +2422,7 @@ class FetchStackTraceVisitor : public StackVisitor {
       if (!m->IsRuntimeMethod()) {  // Ignore runtime frames (in particular callee save).
         if (depth_ < max_saved_frames_) {
           saved_frames_[depth_].first = m;
-          saved_frames_[depth_].second = m->IsProxyMethod() ? DexFile::kDexNoIndex : GetDexPc();
+          saved_frames_[depth_].second = m->IsProxyMethod() ? dex::kDexNoIndex : GetDexPc();
         }
         ++depth_;
       }
@@ -2495,7 +2508,7 @@ class BuildInternalStackTraceVisitor : public StackVisitor {
     if (m->IsRuntimeMethod()) {
       return true;  // Ignore runtime frames (in particular callee save).
     }
-    AddFrame(m, m->IsProxyMethod() ? DexFile::kDexNoIndex : GetDexPc());
+    AddFrame(m, m->IsProxyMethod() ? dex::kDexNoIndex : GetDexPc());
     return true;
   }
 
@@ -3067,14 +3080,16 @@ void Thread::QuickDeliverException() {
     UNREACHABLE();
   }
 
+  ReadBarrier::MaybeAssertToSpaceInvariant(exception.Ptr());
+
   // This is a real exception: let the instrumentation know about it.
   instrumentation::Instrumentation* instrumentation = Runtime::Current()->GetInstrumentation();
-  if (instrumentation->HasExceptionCaughtListeners() &&
+  if (instrumentation->HasExceptionThrownListeners() &&
       IsExceptionThrownByCurrentMethod(exception)) {
     // Instrumentation may cause GC so keep the exception object safe.
     StackHandleScope<1> hs(this);
     HandleWrapperObjPtr<mirror::Throwable> h_exception(hs.NewHandleWrapper(&exception));
-    instrumentation->ExceptionCaughtEvent(this, exception.Ptr());
+    instrumentation->ExceptionThrownEvent(this, exception.Ptr());
   }
   // Does instrumentation need to deoptimize the stack?
   // Note: we do this *after* reporting the exception to instrumentation in case it
@@ -3084,10 +3099,16 @@ void Thread::QuickDeliverException() {
     NthCallerVisitor visitor(this, 0, false);
     visitor.WalkStack();
     if (Runtime::Current()->IsAsyncDeoptimizeable(visitor.caller_pc)) {
+      // method_type shouldn't matter due to exception handling.
+      const DeoptimizationMethodType method_type = DeoptimizationMethodType::kDefault;
       // Save the exception into the deoptimization context so it can be restored
       // before entering the interpreter.
       PushDeoptimizationContext(
-          JValue(), /*is_reference */ false, /* from_code */ false, exception);
+          JValue(),
+          false /* is_reference */,
+          exception,
+          false /* from_code */,
+          method_type);
       artDeoptimize(this);
       UNREACHABLE();
     } else {
@@ -3102,6 +3123,15 @@ void Thread::QuickDeliverException() {
   QuickExceptionHandler exception_handler(this, false);
   exception_handler.FindCatch(exception);
   exception_handler.UpdateInstrumentationStack();
+  if (exception_handler.GetClearException()) {
+    // Exception was cleared as part of delivery.
+    DCHECK(!IsExceptionPending());
+  } else {
+    // Exception was put back with a throw location.
+    DCHECK(IsExceptionPending());
+    // Check the to-space invariant on the re-installed exception (if applicable).
+    ReadBarrier::MaybeAssertToSpaceInvariant(GetException());
+  }
   exception_handler.DoLongJump();
 }
 
@@ -3439,10 +3469,14 @@ class RootCallbackVisitor {
 
 template <bool kPrecise>
 void Thread::VisitRoots(RootVisitor* visitor) {
-  const uint32_t thread_id = GetThreadId();
+  const pid_t thread_id = GetThreadId();
   visitor->VisitRootIfNonNull(&tlsPtr_.opeer, RootInfo(kRootThreadObject, thread_id));
   if (tlsPtr_.exception != nullptr && tlsPtr_.exception != GetDeoptimizationException()) {
     visitor->VisitRoot(reinterpret_cast<mirror::Object**>(&tlsPtr_.exception),
+                       RootInfo(kRootNativeStack, thread_id));
+  }
+  if (tlsPtr_.async_exception != nullptr) {
+    visitor->VisitRoot(reinterpret_cast<mirror::Object**>(&tlsPtr_.async_exception),
                        RootInfo(kRootNativeStack, thread_id));
   }
   visitor->VisitRootIfNonNull(&tlsPtr_.monitor_enter_object, RootInfo(kRootNativeStack, thread_id));
@@ -3647,7 +3681,8 @@ void Thread::DeoptimizeWithDeoptimizationException(JValue* result) {
       PopStackedShadowFrame(StackedShadowFrameType::kDeoptimizationShadowFrame);
   ObjPtr<mirror::Throwable> pending_exception;
   bool from_code = false;
-  PopDeoptimizationContext(result, &pending_exception, &from_code);
+  DeoptimizationMethodType method_type;
+  PopDeoptimizationContext(result, &pending_exception, &from_code, &method_type);
   SetTopOfStack(nullptr);
   SetTopOfShadowStack(shadow_frame);
 
@@ -3656,7 +3691,39 @@ void Thread::DeoptimizeWithDeoptimizationException(JValue* result) {
   if (pending_exception != nullptr) {
     SetException(pending_exception);
   }
-  interpreter::EnterInterpreterFromDeoptimize(this, shadow_frame, from_code, result);
+  interpreter::EnterInterpreterFromDeoptimize(this,
+                                              shadow_frame,
+                                              result,
+                                              from_code,
+                                              method_type);
+}
+
+void Thread::SetAsyncException(ObjPtr<mirror::Throwable> new_exception) {
+  CHECK(new_exception != nullptr);
+  if (kIsDebugBuild) {
+    // Make sure we are in a checkpoint.
+    MutexLock mu(Thread::Current(), *Locks::thread_suspend_count_lock_);
+    CHECK(this == Thread::Current() || GetSuspendCount() >= 1)
+        << "It doesn't look like this was called in a checkpoint! this: "
+        << this << " count: " << GetSuspendCount();
+  }
+  tlsPtr_.async_exception = new_exception.Ptr();
+}
+
+bool Thread::ObserveAsyncException() {
+  DCHECK(this == Thread::Current());
+  if (tlsPtr_.async_exception != nullptr) {
+    if (tlsPtr_.exception != nullptr) {
+      LOG(WARNING) << "Overwriting pending exception with async exception. Pending exception is: "
+                   << tlsPtr_.exception->Dump();
+      LOG(WARNING) << "Async exception is " << tlsPtr_.async_exception->Dump();
+    }
+    tlsPtr_.exception = tlsPtr_.async_exception;
+    tlsPtr_.async_exception = nullptr;
+    return true;
+  } else {
+    return IsExceptionPending();
+  }
 }
 
 void Thread::SetException(ObjPtr<mirror::Throwable> new_exception) {

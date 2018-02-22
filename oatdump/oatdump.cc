@@ -36,12 +36,12 @@
 #include "base/unix_file/fd_file.h"
 #include "class_linker-inl.h"
 #include "class_linker.h"
+#include "compiled_method.h"
 #include "debug/elf_debug_writer.h"
 #include "debug/method_debug_info.h"
 #include "dex_file-inl.h"
 #include "dex_instruction-inl.h"
 #include "disassembler.h"
-#include "elf_builder.h"
 #include "gc/accounting/space_bitmap-inl.h"
 #include "gc/space/image_space.h"
 #include "gc/space/large_object_space.h"
@@ -51,6 +51,7 @@
 #include "indenter.h"
 #include "interpreter/unstarted_runtime.h"
 #include "linker/buffered_output_stream.h"
+#include "linker/elf_builder.h"
 #include "linker/file_output_stream.h"
 #include "mirror/array-inl.h"
 #include "mirror/class-inl.h"
@@ -89,6 +90,8 @@ const char* image_methods_descriptions_[] = {
   "kSaveRefsOnlyMethod",
   "kSaveRefsAndArgsMethod",
   "kSaveEverythingMethod",
+  "kSaveEverythingMethodForClinit",
+  "kSaveEverythingMethodForSuspendCheck",
 };
 
 const char* image_roots_descriptions_[] = {
@@ -131,9 +134,10 @@ class OatSymbolizer FINAL {
     if (elf_file == nullptr) {
       return false;
     }
-    std::unique_ptr<BufferedOutputStream> output_stream =
-        std::make_unique<BufferedOutputStream>(std::make_unique<FileOutputStream>(elf_file.get()));
-    builder_.reset(new ElfBuilder<ElfTypes>(isa, features.get(), output_stream.get()));
+    std::unique_ptr<linker::BufferedOutputStream> output_stream =
+        std::make_unique<linker::BufferedOutputStream>(
+            std::make_unique<linker::FileOutputStream>(elf_file.get()));
+    builder_.reset(new linker::ElfBuilder<ElfTypes>(isa, features.get(), output_stream.get()));
 
     builder_->Start();
 
@@ -176,10 +180,32 @@ class OatSymbolizer FINAL {
                                     oat_file_->BssRootsOffset());
     builder_->WriteDynamicSection();
 
+    const OatHeader& oat_header = oat_file_->GetOatHeader();
+    #define DO_TRAMPOLINE(fn_name)                                                \
+      if (oat_header.Get ## fn_name ## Offset() != 0) {                           \
+        debug::MethodDebugInfo info = {};                                         \
+        info.trampoline_name = #fn_name;                                          \
+        info.isa = oat_header.GetInstructionSet();                                \
+        info.is_code_address_text_relative = true;                                \
+        size_t code_offset = oat_header.Get ## fn_name ## Offset();               \
+        code_offset -= CompiledCode::CodeDelta(oat_header.GetInstructionSet());   \
+        info.code_address = code_offset - oat_header.GetExecutableOffset();       \
+        info.code_size = 0;  /* The symbol lasts until the next symbol. */        \
+        method_debug_infos_.push_back(std::move(info));                           \
+      }
+    DO_TRAMPOLINE(InterpreterToInterpreterBridge)
+    DO_TRAMPOLINE(InterpreterToCompiledCodeBridge)
+    DO_TRAMPOLINE(JniDlsymLookup);
+    DO_TRAMPOLINE(QuickGenericJniTrampoline);
+    DO_TRAMPOLINE(QuickImtConflictTrampoline);
+    DO_TRAMPOLINE(QuickResolutionTrampoline);
+    DO_TRAMPOLINE(QuickToInterpreterBridge);
+    #undef DO_TRAMPOLINE
+
     Walk();
-    for (const auto& trampoline : debug::MakeTrampolineInfos(oat_file_->GetOatHeader())) {
-      method_debug_infos_.push_back(trampoline);
-    }
+
+    // TODO: Try to symbolize link-time thunks?
+    // This would require disassembling all methods to find branches outside the method code.
 
     debug::WriteDebugInfo(builder_.get(),
                           ArrayRef<const debug::MethodDebugInfo>(method_debug_infos_),
@@ -280,8 +306,8 @@ class OatSymbolizer FINAL {
     // Clear Thumb2 bit.
     const void* code_address = EntryPointToCodePointer(reinterpret_cast<void*>(entry_point));
 
-    debug::MethodDebugInfo info = debug::MethodDebugInfo();
-    info.trampoline_name = nullptr;
+    debug::MethodDebugInfo info = {};
+    DCHECK(info.trampoline_name.empty());
     info.dex_file = &dex_file;
     info.class_def_index = class_def_index;
     info.dex_method_index = dex_method_index;
@@ -302,7 +328,7 @@ class OatSymbolizer FINAL {
 
  private:
   const OatFile* oat_file_;
-  std::unique_ptr<ElfBuilder<ElfTypes> > builder_;
+  std::unique_ptr<linker::ElfBuilder<ElfTypes>> builder_;
   std::vector<debug::MethodDebugInfo> method_debug_infos_;
   std::unordered_set<uint32_t> seen_offsets_;
   const std::string output_name_;
@@ -385,6 +411,8 @@ class OatDumper {
   InstructionSet GetInstructionSet() {
     return instruction_set_;
   }
+
+  typedef std::vector<std::unique_ptr<const DexFile>> DexFileUniqV;
 
   bool Dump(std::ostream& os) {
     bool success = true;
@@ -537,14 +565,50 @@ class OatDumper {
       for (size_t i = 0; i < oat_dex_files_.size(); i++) {
         const OatFile::OatDexFile* oat_dex_file = oat_dex_files_[i];
         CHECK(oat_dex_file != nullptr);
+        if (!DumpOatDexFile(os, *oat_dex_file)) {
+          success = false;
+        }
+      }
+    }
 
-        // If file export selected skip file analysis
-        if (options_.export_dex_location_) {
-          if (!ExportDexFile(os, *oat_dex_file)) {
+    if (options_.export_dex_location_) {
+      if (kIsVdexEnabled) {
+        std::string error_msg;
+        std::string vdex_filename = GetVdexFilename(oat_file_.GetLocation());
+        if (!OS::FileExists(vdex_filename.c_str())) {
+          os << "File " << vdex_filename.c_str() << " does not exist\n";
+          return false;
+        }
+
+        DexFileUniqV vdex_dex_files;
+        std::unique_ptr<const VdexFile> vdex_file = OpenVdexUnquicken(vdex_filename,
+                                                                      &vdex_dex_files,
+                                                                      &error_msg);
+        if (vdex_file.get() == nullptr) {
+          os << "Failed to open vdex file: " << error_msg << "\n";
+          return false;
+        }
+        if (oat_dex_files_.size() != vdex_dex_files.size()) {
+          os << "Dex files number in Vdex file does not match Dex files number in Oat file: "
+             << vdex_dex_files.size() << " vs " << oat_dex_files_.size() << '\n';
+          return false;
+        }
+
+        size_t i = 0;
+        for (const auto& vdex_dex_file : vdex_dex_files) {
+          const OatFile::OatDexFile* oat_dex_file = oat_dex_files_[i];
+          CHECK(oat_dex_file != nullptr);
+          CHECK(vdex_dex_file != nullptr);
+          if (!ExportDexFile(os, *oat_dex_file, vdex_dex_file.get())) {
             success = false;
           }
-        } else {
-          if (!DumpOatDexFile(os, *oat_dex_file)) {
+          i++;
+        }
+      } else {
+        for (size_t i = 0; i < oat_dex_files_.size(); i++) {
+          const OatFile::OatDexFile* oat_dex_file = oat_dex_files_[i];
+          CHECK(oat_dex_file != nullptr);
+          if (!ExportDexFile(os, *oat_dex_file, /* vdex_dex_file */ nullptr)) {
             success = false;
           }
         }
@@ -600,6 +664,57 @@ class OatDumper {
       }
     }
     return nullptr;
+  }
+
+  // Returns nullptr and updates error_msg if the Vdex file cannot be opened, otherwise all Dex
+  // files are fully unquickened and stored in dex_files
+  std::unique_ptr<const VdexFile> OpenVdexUnquicken(const std::string& vdex_filename,
+                                                    /* out */ DexFileUniqV* dex_files,
+                                                    /* out */ std::string* error_msg) {
+    std::unique_ptr<const File> file(OS::OpenFileForReading(vdex_filename.c_str()));
+    if (file == nullptr) {
+      *error_msg = "Could not open file " + vdex_filename + " for reading.";
+      return nullptr;
+    }
+
+    int64_t vdex_length = file->GetLength();
+    if (vdex_length == -1) {
+      *error_msg = "Could not read the length of file " + vdex_filename;
+      return nullptr;
+    }
+
+    std::unique_ptr<MemMap> mmap(MemMap::MapFile(
+        file->GetLength(),
+        PROT_READ | PROT_WRITE,
+        MAP_PRIVATE,
+        file->Fd(),
+        /* start offset */ 0,
+        /* low_4gb */ false,
+        vdex_filename.c_str(),
+        error_msg));
+    if (mmap == nullptr) {
+      *error_msg = "Failed to mmap file " + vdex_filename + ": " + *error_msg;
+      return nullptr;
+    }
+
+    std::unique_ptr<VdexFile> vdex_file(new VdexFile(mmap.release()));
+    if (!vdex_file->IsValid()) {
+      *error_msg = "Vdex file is not valid";
+      return nullptr;
+    }
+
+    DexFileUniqV tmp_dex_files;
+    if (!vdex_file->OpenAllDexFiles(&tmp_dex_files, error_msg)) {
+      *error_msg = "Failed to open Dex files from Vdex: " + *error_msg;
+      return nullptr;
+    }
+
+    vdex_file->Unquicken(MakeNonOwningPointerVector(tmp_dex_files),
+                         vdex_file->GetQuickeningInfo(),
+                         /* decompile_return_instruction */ true);
+
+    *dex_files = std::move(tmp_dex_files);
+    return vdex_file;
   }
 
   struct Stats {
@@ -850,7 +965,7 @@ class OatDumper {
       os << "Total number of dex code bytes: " << dex_code_bytes_ << "\n";
     }
 
-  private:
+   private:
     // All of the elements from one container to another.
     template <typename Dest, typename Src>
     static void AddAll(Dest& dest, const Src& src) {
@@ -879,26 +994,23 @@ class OatDumper {
       if (code_item == nullptr) {
         return;
       }
-      const size_t code_item_size = code_item->insns_size_in_code_units_;
-      const uint16_t* code_ptr = code_item->insns_;
-      const uint16_t* code_end = code_item->insns_ + code_item_size;
 
+      const uint16_t* code_ptr = code_item->insns_;
       // If we inserted a new dex code item pointer, add to total code bytes.
       if (dex_code_item_ptrs_.insert(code_ptr).second) {
-        dex_code_bytes_ += code_item_size * sizeof(code_ptr[0]);
+        dex_code_bytes_ += code_item->insns_size_in_code_units_ * sizeof(code_ptr[0]);
       }
 
-      while (code_ptr < code_end) {
-        const Instruction* inst = Instruction::At(code_ptr);
-        switch (inst->Opcode()) {
+      for (const Instruction& inst : code_item->Instructions()) {
+        switch (inst.Opcode()) {
           case Instruction::CONST_STRING: {
-            const dex::StringIndex string_index(inst->VRegB_21c());
+            const dex::StringIndex string_index(inst.VRegB_21c());
             unique_string_ids_from_code_.insert(StringReference(&dex_file, string_index));
             ++num_string_ids_from_code_;
             break;
           }
           case Instruction::CONST_STRING_JUMBO: {
-            const dex::StringIndex string_index(inst->VRegB_31c());
+            const dex::StringIndex string_index(inst.VRegB_31c());
             unique_string_ids_from_code_.insert(StringReference(&dex_file, string_index));
             ++num_string_ids_from_code_;
             break;
@@ -906,13 +1018,11 @@ class OatDumper {
           default:
             break;
         }
-
-        code_ptr += inst->SizeInCodeUnits();
       }
     }
 
     // Unique string ids loaded from dex code.
-    std::set<StringReference, StringReferenceComparator> unique_string_ids_from_code_;
+    std::set<StringReference> unique_string_ids_from_code_;
 
     // Total string ids loaded from dex code.
     size_t num_string_ids_from_code_ = 0;
@@ -1003,21 +1113,42 @@ class OatDumper {
     return success;
   }
 
-  bool ExportDexFile(std::ostream& os, const OatFile::OatDexFile& oat_dex_file) {
+  // Backwards compatible Dex file export. If dex_file is nullptr (valid Vdex file not present) the
+  // Dex resource is extracted from the oat_dex_file and its checksum is repaired since it's not
+  // unquickened. Otherwise the dex_file has been fully unquickened and is expected to verify the
+  // original checksum.
+  bool ExportDexFile(std::ostream& os,
+                     const OatFile::OatDexFile& oat_dex_file,
+                     const DexFile* dex_file) {
     std::string error_msg;
     std::string dex_file_location = oat_dex_file.GetDexFileLocation();
-
-    const DexFile* const dex_file = OpenDexFile(&oat_dex_file, &error_msg);
-    if (dex_file == nullptr) {
-      os << "Failed to open dex file '" << dex_file_location << "': " << error_msg;
-      return false;
-    }
     size_t fsize = oat_dex_file.FileSize();
 
     // Some quick checks just in case
     if (fsize == 0 || fsize < sizeof(DexFile::Header)) {
       os << "Invalid dex file\n";
       return false;
+    }
+
+    if (dex_file == nullptr) {
+      // Exported bytecode is quickened (dex-to-dex transformations present)
+      dex_file = OpenDexFile(&oat_dex_file, &error_msg);
+      if (dex_file == nullptr) {
+        os << "Failed to open dex file '" << dex_file_location << "': " << error_msg;
+        return false;
+      }
+
+      // Recompute checksum
+      reinterpret_cast<DexFile::Header*>(const_cast<uint8_t*>(dex_file->Begin()))->checksum_ =
+          dex_file->CalculateChecksum();
+    } else {
+      // Vdex unquicken output should match original input bytecode
+      uint32_t orig_checksum =
+          reinterpret_cast<DexFile::Header*>(const_cast<uint8_t*>(dex_file->Begin()))->checksum_;
+      if (orig_checksum != dex_file->CalculateChecksum()) {
+        os << "Unexpected checksum from unquicken dex file '" << dex_file_location << "'\n";
+        return false;
+      }
     }
 
     // Verify output directory exists
@@ -1494,12 +1625,11 @@ class OatDumper {
 
   void DumpDexCode(std::ostream& os, const DexFile& dex_file, const DexFile::CodeItem* code_item) {
     if (code_item != nullptr) {
-      size_t i = 0;
-      while (i < code_item->insns_size_in_code_units_) {
-        const Instruction* instruction = Instruction::At(&code_item->insns_[i]);
-        os << StringPrintf("0x%04zx: ", i) << instruction->DumpHexLE(5)
-           << StringPrintf("\t| %s\n", instruction->DumpString(&dex_file).c_str());
-        i += instruction->SizeInCodeUnits();
+      IterationRange<DexInstructionIterator> instructions = code_item->Instructions();
+      for (auto it = instructions.begin(); it != instructions.end(); ++it) {
+        const size_t dex_pc = it.GetDexPC(instructions.begin());
+        os << StringPrintf("0x%04zx: ", dex_pc) << it->DumpHexLE(5)
+           << StringPrintf("\t| %s\n", it->DumpString(&dex_file).c_str());
       }
     }
   }
@@ -1970,16 +2100,13 @@ class ImageDumper {
       stats_.file_bytes += uncompressed_size - data_size;
     }
     size_t header_bytes = sizeof(ImageHeader);
-    const auto& object_section = image_header_.GetImageSection(ImageHeader::kSectionObjects);
-    const auto& field_section = image_header_.GetImageSection(ImageHeader::kSectionArtFields);
+    const auto& object_section = image_header_.GetObjectsSection();
+    const auto& field_section = image_header_.GetFieldsSection();
     const auto& method_section = image_header_.GetMethodsSection();
-    const auto& dex_cache_arrays_section = image_header_.GetImageSection(
-        ImageHeader::kSectionDexCacheArrays);
-    const auto& intern_section = image_header_.GetImageSection(
-        ImageHeader::kSectionInternedStrings);
-    const auto& class_table_section = image_header_.GetImageSection(
-        ImageHeader::kSectionClassTable);
-    const auto& bitmap_section = image_header_.GetImageSection(ImageHeader::kSectionImageBitmap);
+    const auto& dex_cache_arrays_section = image_header_.GetDexCacheArraysSection();
+    const auto& intern_section = image_header_.GetInternedStringsSection();
+    const auto& class_table_section = image_header_.GetClassTableSection();
+    const auto& bitmap_section = image_header_.GetImageBitmapSection();
 
     stats_.header_bytes = header_bytes;
 
@@ -2007,7 +2134,7 @@ class ImageDumper {
 
     // Intern table is 8-byte aligned.
     uint32_t end_caches = dex_cache_arrays_section.Offset() + dex_cache_arrays_section.Size();
-    CHECK_EQ(RoundUp(end_caches, 8U), intern_section.Offset());
+    CHECK_ALIGNED(intern_section.Offset(), sizeof(uint64_t));
     stats_.alignment_bytes += intern_section.Offset() - end_caches;
 
     // Add space between intern table and class table.
@@ -2233,8 +2360,7 @@ class ImageDumper {
       auto it = dex_caches_.find(obj);
       if (it != dex_caches_.end()) {
         auto* dex_cache = down_cast<mirror::DexCache*>(obj);
-        const auto& field_section = image_header_.GetImageSection(
-            ImageHeader::kSectionArtFields);
+        const auto& field_section = image_header_.GetFieldsSection();
         const auto& method_section = image_header_.GetMethodsSection();
         size_t num_methods = dex_cache->NumResolvedMethods();
         if (num_methods != 0u) {

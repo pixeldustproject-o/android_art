@@ -27,16 +27,17 @@
 #include "atomic.h"
 #include "base/mutex.h"
 #include "base/time_utils.h"
-#include "gc/gc_cause.h"
 #include "gc/collector/gc_type.h"
 #include "gc/collector/iteration.h"
 #include "gc/collector_type.h"
+#include "gc/gc_cause.h"
 #include "gc/space/large_object_space.h"
 #include "globals.h"
 #include "handle.h"
 #include "obj_ptr.h"
 #include "offsets.h"
 #include "process_state.h"
+#include "read_barrier_config.h"
 #include "safe_map.h"
 #include "verify_object.h"
 
@@ -53,8 +54,8 @@ class TimingLogger;
 class VariableSizedHandleScope;
 
 namespace mirror {
-  class Class;
-  class Object;
+class Class;
+class Object;
 }  // namespace mirror
 
 namespace gc {
@@ -67,40 +68,40 @@ class TaskProcessor;
 class Verification;
 
 namespace accounting {
-  template <typename T> class AtomicStack;
-  typedef AtomicStack<mirror::Object> ObjectStack;
-  class CardTable;
-  class HeapBitmap;
-  class ModUnionTable;
-  class ReadBarrierTable;
-  class RememberedSet;
+template <typename T> class AtomicStack;
+typedef AtomicStack<mirror::Object> ObjectStack;
+class CardTable;
+class HeapBitmap;
+class ModUnionTable;
+class ReadBarrierTable;
+class RememberedSet;
 }  // namespace accounting
 
 namespace collector {
-  class ConcurrentCopying;
-  class GarbageCollector;
-  class MarkCompact;
-  class MarkSweep;
-  class SemiSpace;
+class ConcurrentCopying;
+class GarbageCollector;
+class MarkCompact;
+class MarkSweep;
+class SemiSpace;
 }  // namespace collector
 
 namespace allocator {
-  class RosAlloc;
+class RosAlloc;
 }  // namespace allocator
 
 namespace space {
-  class AllocSpace;
-  class BumpPointerSpace;
-  class ContinuousMemMapAllocSpace;
-  class DiscontinuousSpace;
-  class DlMallocSpace;
-  class ImageSpace;
-  class LargeObjectSpace;
-  class MallocSpace;
-  class RegionSpace;
-  class RosAllocSpace;
-  class Space;
-  class ZygoteSpace;
+class AllocSpace;
+class BumpPointerSpace;
+class ContinuousMemMapAllocSpace;
+class DiscontinuousSpace;
+class DlMallocSpace;
+class ImageSpace;
+class LargeObjectSpace;
+class MallocSpace;
+class RegionSpace;
+class RosAllocSpace;
+class Space;
+class ZygoteSpace;
 }  // namespace space
 
 enum HomogeneousSpaceCompactResult {

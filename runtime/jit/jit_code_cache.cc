@@ -51,15 +51,6 @@ static constexpr int kProtCode = PROT_READ | PROT_EXEC;
 static constexpr size_t kCodeSizeLogThreshold = 50 * KB;
 static constexpr size_t kStackMapSizeLogThreshold = 50 * KB;
 
-#define CHECKED_MPROTECT(memory, size, prot)                \
-  do {                                                      \
-    int rc = mprotect(memory, size, prot);                  \
-    if (UNLIKELY(rc != 0)) {                                \
-      errno = rc;                                           \
-      PLOG(FATAL) << "Failed to mprotect jit code cache";   \
-    }                                                       \
-  } while (false)                                           \
-
 JitCodeCache* JitCodeCache::Create(size_t initial_capacity,
                                    size_t max_capacity,
                                    bool generate_debug_info,
@@ -173,8 +164,16 @@ JitCodeCache::JitCodeCache(MemMap* code_map,
 
   SetFootprintLimit(current_capacity_);
 
-  CHECKED_MPROTECT(code_map_->Begin(), code_map_->Size(), kProtCode);
-  CHECKED_MPROTECT(data_map_->Begin(), data_map_->Size(), kProtData);
+  CheckedCall(mprotect,
+              "mprotect jit code cache",
+              code_map_->Begin(),
+              code_map_->Size(),
+              kProtCode);
+  CheckedCall(mprotect,
+              "mprotect jit data cache",
+              data_map_->Begin(),
+              data_map_->Size(),
+              kProtData);
 
   VLOG(jit) << "Created jit code cache: initial data size="
             << PrettySize(initial_data_capacity)
@@ -203,14 +202,21 @@ class ScopedCodeCacheWrite : ScopedTrace {
         code_map_(code_map),
         only_for_tlb_shootdown_(only_for_tlb_shootdown) {
     ScopedTrace trace("mprotect all");
-    CHECKED_MPROTECT(
-        code_map_->Begin(), only_for_tlb_shootdown_ ? kPageSize : code_map_->Size(), kProtAll);
+    CheckedCall(mprotect,
+                "make code writable",
+                code_map_->Begin(),
+                only_for_tlb_shootdown_ ? kPageSize : code_map_->Size(),
+                kProtAll);
   }
   ~ScopedCodeCacheWrite() {
     ScopedTrace trace("mprotect code");
-    CHECKED_MPROTECT(
-        code_map_->Begin(), only_for_tlb_shootdown_ ? kPageSize : code_map_->Size(), kProtCode);
+    CheckedCall(mprotect,
+                "make code protected",
+                code_map_->Begin(),
+                only_for_tlb_shootdown_ ? kPageSize : code_map_->Size(),
+                kProtCode);
   }
+
  private:
   MemMap* const code_map_;
 
@@ -534,7 +540,7 @@ void JitCodeCache::CopyInlineCacheInto(const InlineCache& ic,
 
 static void ClearMethodCounter(ArtMethod* method, bool was_warm) {
   if (was_warm) {
-    method->AddAccessFlags(kAccPreviouslyWarm);
+    method->SetPreviouslyWarm();
   }
   // We reset the counter to 1 so that the profile knows that the method was executed at least once.
   // This is required for layout purposes.
@@ -971,9 +977,7 @@ bool JitCodeCache::IncreaseCodeCacheCapacity() {
     current_capacity_ = max_capacity_;
   }
 
-  if (!kIsDebugBuild || VLOG_IS_ON(jit)) {
-    LOG(INFO) << "Increasing code cache capacity to " << PrettySize(current_capacity_);
-  }
+  VLOG(jit) << "Increasing code cache capacity to " << PrettySize(current_capacity_);
 
   SetFootprintLimit(current_capacity_);
 
@@ -1044,21 +1048,17 @@ void JitCodeCache::GarbageCollectCache(Thread* self) {
       do_full_collection = ShouldDoFullCollection();
     }
 
-    if (!kIsDebugBuild || VLOG_IS_ON(jit)) {
-      LOG(INFO) << "Do "
-                << (do_full_collection ? "full" : "partial")
-                << " code cache collection, code="
-                << PrettySize(CodeCacheSize())
-                << ", data=" << PrettySize(DataCacheSize());
-    }
+    VLOG(jit) << "Do "
+              << (do_full_collection ? "full" : "partial")
+              << " code cache collection, code="
+              << PrettySize(CodeCacheSize())
+              << ", data=" << PrettySize(DataCacheSize());
 
     DoCollection(self, /* collect_profiling_info */ do_full_collection);
 
-    if (!kIsDebugBuild || VLOG_IS_ON(jit)) {
-      LOG(INFO) << "After code cache collection, code="
-                << PrettySize(CodeCacheSize())
-                << ", data=" << PrettySize(DataCacheSize());
-    }
+    VLOG(jit) << "After code cache collection, code="
+              << PrettySize(CodeCacheSize())
+              << ", data=" << PrettySize(DataCacheSize());
 
     {
       MutexLock mu(self, lock_);
@@ -1175,7 +1175,6 @@ void JitCodeCache::DoCollection(Thread* self, bool collect_profiling_info) {
   RemoveUnmarkedCode(self);
 
   if (collect_profiling_info) {
-    ScopedThreadSuspension sts(self, kSuspended);
     MutexLock mu(self, lock_);
     // Free all profiling infos of methods not compiled nor being compiled.
     auto profiling_kept_end = std::remove_if(profiling_infos_.begin(), profiling_infos_.end(),
@@ -1251,7 +1250,7 @@ OatQuickMethodHeader* JitCodeCache::LookupMethodHeader(uintptr_t pc, ArtMethod* 
     // is the one we expect. We change to the non-obsolete versions in the error message since the
     // obsolete version of the method might not be fully initialized yet. This situation can only
     // occur when we are in the process of allocating and setting up obsolete methods. Otherwise
-    // method and it->second should be identical. (See runtime/openjdkjvmti/ti_redefine.cc for more
+    // method and it->second should be identical. (See openjdkjvmti/ti_redefine.cc for more
     // information.)
     DCHECK_EQ(it->second->GetNonObsoleteMethod(), method->GetNonObsoleteMethod())
         << ArtMethod::PrettyMethod(method->GetNonObsoleteMethod()) << " "

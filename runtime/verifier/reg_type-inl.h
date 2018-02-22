@@ -21,8 +21,8 @@
 
 #include "base/casts.h"
 #include "base/scoped_arena_allocator.h"
-#include "mirror/class.h"
 #include "method_verifier.h"
+#include "mirror/class.h"
 #include "verifier_deps.h"
 
 namespace art {
@@ -199,8 +199,8 @@ inline const UndefinedType* UndefinedType::GetInstance() {
   return instance_;
 }
 
-inline void* RegType::operator new(size_t size, ScopedArenaAllocator* arena) {
-  return arena->Alloc(size, kArenaAllocMisc);
+inline void* RegType::operator new(size_t size, ScopedArenaAllocator* allocator) {
+  return allocator->Alloc(size, kArenaAllocMisc);
 }
 
 }  // namespace verifier

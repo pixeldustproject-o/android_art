@@ -30,6 +30,16 @@
 
 namespace art {
 
+// Check that intrinsic enum values fit within space set aside in ArtMethod modifier flags.
+#define CHECK_INTRINSICS_ENUM_VALUES(Name, IsStatic, NeedsEnvironmentOrCache, SideEffects, Exceptions, ...) \
+  static_assert( \
+      static_cast<uint32_t>(Intrinsics::k ## Name) <= (kAccIntrinsicBits >> CTZ(kAccIntrinsicBits)), \
+      "Instrinsics enumeration space overflow: ");
+#include "intrinsics_list.h"
+  INTRINSICS_LIST(CHECK_INTRINSICS_ENUM_VALUES)
+#undef INTRINSICS_LIST
+#undef CHECK_INTRINSICS_ENUM_VALUES
+
 // Function that returns whether an intrinsic is static/direct or virtual.
 static inline InvokeType GetIntrinsicInvokeType(Intrinsics i) {
   switch (i) {
@@ -39,7 +49,7 @@ static inline InvokeType GetIntrinsicInvokeType(Intrinsics i) {
     case Intrinsics::k ## Name: \
       return IsStatic;
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+      INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
   }
@@ -55,7 +65,7 @@ static inline IntrinsicNeedsEnvironmentOrCache NeedsEnvironmentOrCache(Intrinsic
     case Intrinsics::k ## Name: \
       return NeedsEnvironmentOrCache;
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+      INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
   }
@@ -71,7 +81,7 @@ static inline IntrinsicSideEffects GetSideEffects(Intrinsics i) {
     case Intrinsics::k ## Name: \
       return SideEffects;
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+      INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
   }
@@ -87,7 +97,7 @@ static inline IntrinsicExceptions GetExceptions(Intrinsics i) {
     case Intrinsics::k ## Name: \
       return Exceptions;
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+      INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
   }
@@ -109,6 +119,7 @@ static bool CheckInvokeType(Intrinsics intrinsic, HInvoke* invoke) {
   // InvokeStaticOrDirect.
   InvokeType intrinsic_type = GetIntrinsicInvokeType(intrinsic);
   InvokeType invoke_type = invoke->GetInvokeType();
+
   switch (intrinsic_type) {
     case kStatic:
       return (invoke_type == kStatic);
@@ -154,7 +165,8 @@ void IntrinsicsRecognizer::Run() {
                                  NeedsEnvironmentOrCache(intrinsic),
                                  GetSideEffects(intrinsic),
                                  GetExceptions(intrinsic));
-            MaybeRecordStat(MethodCompilationStat::kIntrinsicRecognized);
+            MaybeRecordStat(stats_,
+                            MethodCompilationStat::kIntrinsicRecognized);
           }
         }
       }
@@ -172,7 +184,7 @@ std::ostream& operator<<(std::ostream& os, const Intrinsics& intrinsic) {
       os << # Name; \
       break;
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+      INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef STATIC_INTRINSICS_LIST
 #undef VIRTUAL_INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
@@ -208,7 +220,7 @@ void IntrinsicVisitor::ComputeIntegerValueOfLocations(HInvoke* invoke,
   }
 
   // The intrinsic will call if it needs to allocate a j.l.Integer.
-  LocationSummary* locations = new (invoke->GetBlock()->GetGraph()->GetArena()) LocationSummary(
+  LocationSummary* locations = new (invoke->GetBlock()->GetGraph()->GetAllocator()) LocationSummary(
       invoke, LocationSummary::kCallOnMainOnly, kIntrinsified);
   if (!invoke->InputAt(0)->IsConstant()) {
     locations->SetInAt(0, Location::RequiresRegister());

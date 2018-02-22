@@ -63,7 +63,7 @@ class IntrinsicVisitor : public ValueObject {
         Visit ## Name(invoke);    \
         return;
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+        INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
 
@@ -77,7 +77,7 @@ INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
   virtual void Visit ## Name(HInvoke* invoke ATTRIBUTE_UNUSED) { \
   }
 #include "intrinsics_list.h"
-INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
+  INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 #undef INTRINSICS_LIST
 #undef OPTIMIZING_INTRINSICS
 
@@ -100,7 +100,7 @@ INTRINSICS_LIST(OPTIMIZING_INTRINSICS)
 
     // We're moving potentially two or more locations to locations that could overlap, so we need
     // a parallel move resolver.
-    HParallelMove parallel_move(codegen->GetGraph()->GetArena());
+    HParallelMove parallel_move(codegen->GetGraph()->GetAllocator());
 
     for (size_t i = 0; i < invoke->GetNumberOfArguments(); i++) {
       HInstruction* input = invoke->InputAt(i);
@@ -256,25 +256,27 @@ void IntrinsicCodeGenerator ## Arch::Visit ## Name(HInvoke* invoke) {    \
   LOG(FATAL) << "Unreachable: intrinsic " << invoke->GetIntrinsic()      \
              << " should have been converted to HIR";                    \
 }
-#define UNREACHABLE_INTRINSICS(Arch)                \
-UNREACHABLE_INTRINSIC(Arch, FloatFloatToIntBits)    \
-UNREACHABLE_INTRINSIC(Arch, DoubleDoubleToLongBits) \
-UNREACHABLE_INTRINSIC(Arch, FloatIsNaN)             \
-UNREACHABLE_INTRINSIC(Arch, DoubleIsNaN)            \
-UNREACHABLE_INTRINSIC(Arch, IntegerRotateLeft)      \
-UNREACHABLE_INTRINSIC(Arch, LongRotateLeft)         \
-UNREACHABLE_INTRINSIC(Arch, IntegerRotateRight)     \
-UNREACHABLE_INTRINSIC(Arch, LongRotateRight)        \
-UNREACHABLE_INTRINSIC(Arch, IntegerCompare)         \
-UNREACHABLE_INTRINSIC(Arch, LongCompare)            \
-UNREACHABLE_INTRINSIC(Arch, IntegerSignum)          \
-UNREACHABLE_INTRINSIC(Arch, LongSignum)             \
-UNREACHABLE_INTRINSIC(Arch, StringCharAt)           \
-UNREACHABLE_INTRINSIC(Arch, StringIsEmpty)          \
-UNREACHABLE_INTRINSIC(Arch, StringLength)           \
-UNREACHABLE_INTRINSIC(Arch, UnsafeLoadFence)        \
-UNREACHABLE_INTRINSIC(Arch, UnsafeStoreFence)       \
-UNREACHABLE_INTRINSIC(Arch, UnsafeFullFence)
+#define UNREACHABLE_INTRINSICS(Arch)                            \
+UNREACHABLE_INTRINSIC(Arch, FloatFloatToIntBits)                \
+UNREACHABLE_INTRINSIC(Arch, DoubleDoubleToLongBits)             \
+UNREACHABLE_INTRINSIC(Arch, FloatIsNaN)                         \
+UNREACHABLE_INTRINSIC(Arch, DoubleIsNaN)                        \
+UNREACHABLE_INTRINSIC(Arch, IntegerRotateLeft)                  \
+UNREACHABLE_INTRINSIC(Arch, LongRotateLeft)                     \
+UNREACHABLE_INTRINSIC(Arch, IntegerRotateRight)                 \
+UNREACHABLE_INTRINSIC(Arch, LongRotateRight)                    \
+UNREACHABLE_INTRINSIC(Arch, IntegerCompare)                     \
+UNREACHABLE_INTRINSIC(Arch, LongCompare)                        \
+UNREACHABLE_INTRINSIC(Arch, IntegerSignum)                      \
+UNREACHABLE_INTRINSIC(Arch, LongSignum)                         \
+UNREACHABLE_INTRINSIC(Arch, StringCharAt)                       \
+UNREACHABLE_INTRINSIC(Arch, StringIsEmpty)                      \
+UNREACHABLE_INTRINSIC(Arch, StringLength)                       \
+UNREACHABLE_INTRINSIC(Arch, UnsafeLoadFence)                    \
+UNREACHABLE_INTRINSIC(Arch, UnsafeStoreFence)                   \
+UNREACHABLE_INTRINSIC(Arch, UnsafeFullFence)                    \
+UNREACHABLE_INTRINSIC(Arch, MethodHandleInvokeExact)            \
+UNREACHABLE_INTRINSIC(Arch, MethodHandleInvoke)
 
 template <typename IntrinsicLocationsBuilder, typename Codegenerator>
 bool IsCallFreeIntrinsic(HInvoke* invoke, Codegenerator* codegen) {

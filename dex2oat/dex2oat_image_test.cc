@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <regex>
+#include <regex>  // NOLINT [build/c++11] [5]
 #include <sstream>
 #include <string>
 #include <vector>
@@ -59,7 +59,7 @@ class Dex2oatImageTest : public CommonRuntimeTest {
                          size_t class_frequency = 1) {
     size_t method_counter = 0;
     size_t class_counter = 0;
-    for (std::string dex : GetLibCoreDexFileNames()) {
+    for (const std::string& dex : GetLibCoreDexFileNames()) {
       std::vector<std::unique_ptr<const DexFile>> dex_files;
       std::string error_msg;
       CHECK(DexFile::Open(dex.c_str(), dex, /*verify_checksum*/ false, &error_msg, &dex_files))
@@ -87,16 +87,14 @@ class Dex2oatImageTest : public CommonRuntimeTest {
   void GenerateClasses(File* out_file, size_t frequency = 1) {
     VisitLibcoreDexes(VoidFunctor(),
                       [out_file](TypeReference ref) {
-      WriteLine(out_file,
-                ref.dex_file->PrettyType(ref.type_index));
+      WriteLine(out_file, ref.dex_file->PrettyType(ref.TypeIndex()));
     }, frequency, frequency);
     EXPECT_EQ(out_file->Flush(), 0);
   }
 
   void GenerateMethods(File* out_file, size_t frequency = 1) {
     VisitLibcoreDexes([out_file](MethodReference ref) {
-      WriteLine(out_file,
-                ref.dex_file->PrettyMethod(ref.dex_method_index));
+      WriteLine(out_file, ref.PrettyMethod());
     }, VoidFunctor(), frequency, frequency);
     EXPECT_EQ(out_file->Flush(), 0);
   }
@@ -157,9 +155,6 @@ class Dex2oatImageTest : public CommonRuntimeTest {
     if (!kIsTargetBuild) {
       argv.push_back("--host");
     }
-
-    ScratchFile file;
-    const std::string image_prefix = file.GetFilename();
 
     argv.push_back("--image=" + image_file_name_prefix + ".art");
     argv.push_back("--oat-file=" + image_file_name_prefix + ".oat");
@@ -316,9 +311,13 @@ TEST_F(Dex2oatImageTest, TestModesAndFilters) {
   {
     ProfileCompilationInfo profile;
     VisitLibcoreDexes([&profile](MethodReference ref) {
-      EXPECT_TRUE(profile.AddMethodIndex(ProfileCompilationInfo::MethodHotness::kFlagHot, ref));
+      uint32_t flags = ProfileCompilationInfo::MethodHotness::kFlagHot |
+          ProfileCompilationInfo::MethodHotness::kFlagStartup;
+      EXPECT_TRUE(profile.AddMethodIndex(
+          static_cast<ProfileCompilationInfo::MethodHotness::Flag>(flags),
+          ref));
     }, [&profile](TypeReference ref) {
-      EXPECT_TRUE(profile.AddClassesForDex(ref.dex_file, &ref.type_index, &ref.type_index + 1));
+      EXPECT_TRUE(profile.AddClassForDex(ref));
     }, kMethodFrequency, kTypeFrequency);
     ScratchFile profile_file;
     profile.Save(profile_file.GetFile()->Fd());

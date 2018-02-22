@@ -37,6 +37,9 @@ struct WellKnownClasses {
  public:
   static void Init(JNIEnv* env);  // Run before native methods are registered.
   static void LateInit(JNIEnv* env);  // Run after native methods are registered.
+
+  static void Clear();
+
   static ArtMethod* StringInitToStringFactory(ArtMethod* method);
   static uint32_t StringInitToEntryPoint(ArtMethod* method);
 
@@ -61,6 +64,7 @@ struct WellKnownClasses {
   static jclass java_lang_Error;
   static jclass java_lang_IllegalAccessError;
   static jclass java_lang_invoke_MethodHandle;
+  static jclass java_lang_invoke_MethodHandle_PolymorphicSignature;
   static jclass java_lang_NoClassDefFoundError;
   static jclass java_lang_Object;
   static jclass java_lang_OutOfMemoryError;

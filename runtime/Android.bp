@@ -51,7 +51,6 @@ cc_defaults {
         "class_linker.cc",
         "class_loader_context.cc",
         "class_table.cc",
-        "code_simulator_container.cc",
         "common_throws.cc",
         "compiler_filter.cc",
         "debugger.cc",
@@ -202,6 +201,7 @@ cc_defaults {
         "runtime.cc",
         "runtime_callbacks.cc",
         "runtime_common.cc",
+        "runtime_intrinsics.cc",
         "runtime_options.cc",
         "scoped_thread_state_change.cc",
         "signal_catcher.cc",
@@ -360,7 +360,7 @@ cc_defaults {
                 "libdl",
                 // For android::FileMap used by libziparchive.
                 "libutils",
-                "libtombstoned_client"
+                "libtombstoned_client",
             ],
             static_libs: [
                 // ZipArchive support, the order matters here to get all symbols.
@@ -401,9 +401,13 @@ cc_defaults {
     export_generated_headers: ["cpp-define-generator-asm-support"],
     clang: true,
     include_dirs: [
-        "art/cmdline",
         "art/sigchainlib",
-        "art",
+        "external/icu/icu4c/source/common",
+        "external/lz4/lib",
+        "external/zlib",
+    ],
+    header_libs: [
+        "art_cmdlineparser_headers",
     ],
     shared_libs: [
         "libnativehelper",
@@ -425,6 +429,8 @@ cc_defaults {
     },
     export_include_dirs: ["."],
     // ART's macros.h depends on libbase's macros.h.
+    // Note: runtime_options.h depends on cmdline. But we don't really want to export this
+    //       generically. dex2oat takes care of it itself.
     export_shared_lib_headers: ["libbase"],
 }
 
@@ -440,6 +446,7 @@ gensrcs {
         "base/mutex.h",
         "debugger.h",
         "base/unix_file/fd_file.h",
+        "class_status.h",
         "dex_file.h",
         "dex_file_layout.h",
         "dex_instruction.h",
@@ -460,7 +467,6 @@ gensrcs {
         "jdwp/jdwp.h",
         "jdwp/jdwp_constants.h",
         "lock_word.h",
-        "mirror/class.h",
         "oat.h",
         "object_callbacks.h",
         "process_state.h",
@@ -490,8 +496,8 @@ art_cc_library {
 art_cc_library {
     name: "libartd",
     defaults: [
-       "art_debug_defaults",
-       "libart_defaults",
+        "art_debug_defaults",
+        "libart_defaults",
     ],
 }
 
@@ -500,12 +506,15 @@ art_cc_library {
     defaults: ["libart-gtest-defaults"],
     srcs: [
         "common_runtime_test.cc",
-        "dexopt_test.cc"
+        "dexopt_test.cc",
     ],
     shared_libs: [
         "libartd",
         "libbase",
-        "libbacktrace"
+        "libbacktrace",
+    ],
+    include_dirs: [
+        "external/icu/icu4c/source/common",
     ],
 }
 
@@ -552,7 +561,6 @@ art_cc_test {
         "dex_file_test.cc",
         "dex_file_verifier_test.cc",
         "dex_instruction_test.cc",
-        "dex_method_iterator_test.cc",
         "entrypoints/math_entrypoints_test.cc",
         "entrypoints/quick/quick_trampoline_entrypoints_test.cc",
         "entrypoints_order_test.cc",
@@ -610,6 +618,12 @@ art_cc_test {
     shared_libs: [
         "libbacktrace",
     ],
+    header_libs: [
+        "art_cmdlineparser_headers", // For parsed_options_test.
+    ],
+    include_dirs: [
+        "external/zlib",
+    ],
 }
 
 art_cc_test {
@@ -629,8 +643,8 @@ art_cc_test {
     ],
 }
 
-subdirs = [
-    "openjdkjvm",
-    "openjdkjvmti",
-    "simulator",
-]
+cc_library_headers {
+    name: "libart_runtime_headers",
+    host_supported: true,
+    export_include_dirs: ["."],
+}

@@ -20,9 +20,9 @@
 
 #include <list>
 
-#include "memory_representation.h"
-#include "detail/cmdline_debug_detail.h"
 #include "cmdline_type_parser.h"
+#include "detail/cmdline_debug_detail.h"
+#include "memory_representation.h"
 
 #include "android-base/strings.h"
 
@@ -36,6 +36,7 @@
 #include "jdwp/jdwp.h"
 #include "jit/profile_saver_options.h"
 #include "plugin.h"
+#include "read_barrier_config.h"
 #include "ti/agent.h"
 #include "unit.h"
 

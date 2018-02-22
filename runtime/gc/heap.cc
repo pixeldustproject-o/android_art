@@ -235,7 +235,7 @@ Heap::Heap(size_t initial_size,
       verify_pre_sweeping_rosalloc_(verify_pre_sweeping_rosalloc),
       verify_post_gc_rosalloc_(verify_post_gc_rosalloc),
       gc_stress_mode_(gc_stress_mode),
-      /* For GC a lot mode, we limit the allocations stacks to be kGcAlotInterval allocations. This
+      /* For GC a lot mode, we limit the allocation stacks to be kGcAlotInterval allocations. This
        * causes a lot of GC since we do a GC for alloc whenever the stack is full. When heap
        * verification is enabled, we limit the size of allocation stacks to speed up their
        * searching.
@@ -2927,7 +2927,7 @@ void Heap::PushOnAllocationStackWithInternalGC(Thread* self, ObjPtr<mirror::Obje
     // TODO: Add handle VerifyObject.
     StackHandleScope<1> hs(self);
     HandleWrapperObjPtr<mirror::Object> wrapper(hs.NewHandleWrapper(obj));
-    // Push our object into the reserve region of the allocaiton stack. This is only required due
+    // Push our object into the reserve region of the allocation stack. This is only required due
     // to heap verification requiring that roots are live (either in the live bitmap or in the
     // allocation stack).
     CHECK(allocation_stack_->AtomicPushBackIgnoreGrowthLimit(obj->Ptr()));
@@ -3850,15 +3850,19 @@ void Heap::AddModUnionTable(accounting::ModUnionTable* mod_union_table) {
 }
 
 void Heap::CheckPreconditionsForAllocObject(ObjPtr<mirror::Class> c, size_t byte_count) {
+  // Compare rounded sizes since the allocation may have been retried after rounding the size.
+  // See b/37885600
   CHECK(c == nullptr || (c->IsClassClass() && byte_count >= sizeof(mirror::Class)) ||
-        (c->IsVariableSize() || c->GetObjectSize() == byte_count))
+        (c->IsVariableSize() ||
+            RoundUp(c->GetObjectSize(), kObjectAlignment) ==
+                RoundUp(byte_count, kObjectAlignment)))
       << "ClassFlags=" << c->GetClassFlags()
       << " IsClassClass=" << c->IsClassClass()
       << " byte_count=" << byte_count
       << " IsVariableSize=" << c->IsVariableSize()
       << " ObjectSize=" << c->GetObjectSize()
       << " sizeof(Class)=" << sizeof(mirror::Class)
-      << verification_->DumpObjectInfo(c.Ptr(), /*tag*/ "klass");
+      << " " << verification_->DumpObjectInfo(c.Ptr(), /*tag*/ "klass");
   CHECK_GE(byte_count, sizeof(mirror::Object));
 }
 

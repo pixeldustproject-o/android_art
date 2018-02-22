@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <regex>
+#include <regex>  // NOLINT [build/c++11] [5]
 #include <sstream>
 #include <string>
 #include <vector>
@@ -30,9 +30,9 @@
 #include "base/macros.h"
 #include "base/mutex-inl.h"
 #include "bytecode_utils.h"
-#include "dex_file-inl.h"
 #include "dex2oat_environment_test.h"
 #include "dex2oat_return_codes.h"
+#include "dex_file-inl.h"
 #include "jit/profile_compilation_info.h"
 #include "oat.h"
 #include "oat_file.h"
@@ -89,13 +89,31 @@ class Dex2oatTest : public Dex2oatEnvironmentTest {
     return status;
   }
 
-  void GenerateOdexForTest(const std::string& dex_location,
-                           const std::string& odex_location,
-                           CompilerFilter::Filter filter,
-                           const std::vector<std::string>& extra_args = {},
-                           bool expect_success = true,
-                           bool use_fd = false,
-                           std::function<void(const OatFile&)> check_oat = [](const OatFile&) {}) {
+  void GenerateOdexForTest(
+      const std::string& dex_location,
+      const std::string& odex_location,
+      CompilerFilter::Filter filter,
+      const std::vector<std::string>& extra_args = {},
+      bool expect_success = true,
+      bool use_fd = false) {
+    GenerateOdexForTest(dex_location,
+                        odex_location,
+                        filter,
+                        extra_args,
+                        expect_success,
+                        use_fd,
+                        [](const OatFile&) {});
+  }
+
+  template <typename T>
+  void GenerateOdexForTest(
+      const std::string& dex_location,
+      const std::string& odex_location,
+      CompilerFilter::Filter filter,
+      const std::vector<std::string>& extra_args,
+      bool expect_success,
+      bool use_fd,
+      T check_oat) {
     std::string error_msg;
     int status = GenerateOdexForTestWithStatus({dex_location},
                                                odex_location,
@@ -688,7 +706,7 @@ class Dex2oatLayoutTest : public Dex2oatTest {
     }
   }
 
-  uint64_t GetImageSize(const std::string& image_file_name) {
+  uint64_t GetImageObjectSectionSize(const std::string& image_file_name) {
     EXPECT_FALSE(image_file_name.empty());
     std::unique_ptr<File> file(OS::OpenFileForReading(image_file_name.c_str()));
     CHECK(file != nullptr);
@@ -697,7 +715,7 @@ class Dex2oatLayoutTest : public Dex2oatTest {
     CHECK(success);
     CHECK(image_header.IsValid());
     ReaderMutexLock mu(Thread::Current(), *Locks::mutator_lock_);
-    return image_header.GetImageSize();
+    return image_header.GetObjectsSection().Size();
   }
 
   void RunTest(bool app_image) {
@@ -716,7 +734,7 @@ class Dex2oatLayoutTest : public Dex2oatTest {
       CheckValidity();
       ASSERT_TRUE(success_);
       // Don't check the result since CheckResult relies on the class being in the profile.
-      image_file_empty_profile = GetImageSize(app_image_file);
+      image_file_empty_profile = GetImageObjectSectionSize(app_image_file);
       EXPECT_GT(image_file_empty_profile, 0u);
     }
 
@@ -732,8 +750,8 @@ class Dex2oatLayoutTest : public Dex2oatTest {
 
     if (app_image) {
       // Test that the profile made a difference by adding more classes.
-      const uint64_t image_file_small_profile = GetImageSize(app_image_file);
-      CHECK_LT(image_file_empty_profile, image_file_small_profile);
+      const uint64_t image_file_small_profile = GetImageObjectSectionSize(app_image_file);
+      ASSERT_LT(image_file_empty_profile, image_file_small_profile);
     }
   }
 
@@ -822,7 +840,7 @@ class Dex2oatLayoutTest : public Dex2oatTest {
       bool success = file->ReadFully(&image_header, sizeof(image_header));
       ASSERT_TRUE(success);
       ASSERT_TRUE(image_header.IsValid());
-      EXPECT_GT(image_header.GetImageSection(ImageHeader::kSectionObjects).Size(), 0u);
+      EXPECT_GT(image_header.GetObjectsSection().Size(), 0u);
     }
   }
 
@@ -968,6 +986,7 @@ TEST_F(Dex2oatWatchdogTest, TestWatchdogOK) {
 }
 
 TEST_F(Dex2oatWatchdogTest, TestWatchdogTrigger) {
+  TEST_DISABLED_FOR_MEMORY_TOOL_VALGRIND();  // b/63052624
   // Check with ten milliseconds.
   RunTest(false, { "--watchdog-timeout=10" });
 }

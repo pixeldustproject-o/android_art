@@ -17,10 +17,11 @@
 #include "image_space.h"
 
 #include <lz4.h>
-#include <random>
 #include <sys/statvfs.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <random>
 
 #include "android-base/stringprintf.h"
 #include "android-base/strings.h"
@@ -30,8 +31,8 @@
 #include "base/callee_save_type.h"
 #include "base/enums.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/scoped_flock.h"
+#include "base/stl_util.h"
 #include "base/systrace.h"
 #include "base/time_utils.h"
 #include "exec_utils.h"
@@ -578,7 +579,7 @@ class ImageSpaceLoader {
       }
     }
 
-    const auto& bitmap_section = image_header->GetImageSection(ImageHeader::kSectionImageBitmap);
+    const auto& bitmap_section = image_header->GetImageBitmapSection();
     // The location we want to map from is the first aligned page after the end of the stored
     // (possibly compressed) data.
     const size_t image_bitmap_offset = RoundUp(sizeof(ImageHeader) + image_header->GetDataSize(),
@@ -643,7 +644,7 @@ class ImageSpaceLoader {
                                          image_filename,
                                          bitmap_index));
     // Bitmap only needs to cover until the end of the mirror objects section.
-    const ImageSection& image_objects = image_header->GetImageSection(ImageHeader::kSectionObjects);
+    const ImageSection& image_objects = image_header->GetObjectsSection();
     // We only want the mirror object, not the ArtFields and ArtMethods.
     uint8_t* const image_end = map->Begin() + image_objects.End();
     std::unique_ptr<accounting::ContinuousSpaceBitmap> bitmap;
@@ -724,6 +725,10 @@ class ImageSpaceLoader {
                image_header->GetImageMethod(ImageHeader::kSaveRefsAndArgsMethod));
       CHECK_EQ(runtime->GetCalleeSaveMethod(CalleeSaveType::kSaveEverything),
                image_header->GetImageMethod(ImageHeader::kSaveEverythingMethod));
+      CHECK_EQ(runtime->GetCalleeSaveMethod(CalleeSaveType::kSaveEverythingForClinit),
+               image_header->GetImageMethod(ImageHeader::kSaveEverythingMethodForClinit));
+      CHECK_EQ(runtime->GetCalleeSaveMethod(CalleeSaveType::kSaveEverythingForSuspendCheck),
+               image_header->GetImageMethod(ImageHeader::kSaveEverythingMethodForSuspendCheck));
     } else if (!runtime->HasResolutionMethod()) {
       runtime->SetInstructionSet(space->oat_file_non_owned_->GetOatHeader().GetInstructionSet());
       runtime->SetResolutionMethod(image_header->GetImageMethod(ImageHeader::kResolutionMethod));
@@ -742,6 +747,12 @@ class ImageSpaceLoader {
       runtime->SetCalleeSaveMethod(
           image_header->GetImageMethod(ImageHeader::kSaveEverythingMethod),
           CalleeSaveType::kSaveEverything);
+      runtime->SetCalleeSaveMethod(
+          image_header->GetImageMethod(ImageHeader::kSaveEverythingMethodForClinit),
+          CalleeSaveType::kSaveEverythingForClinit);
+      runtime->SetCalleeSaveMethod(
+          image_header->GetImageMethod(ImageHeader::kSaveEverythingMethodForSuspendCheck),
+          CalleeSaveType::kSaveEverythingForSuspendCheck);
     }
 
     VLOG(image) << "ImageSpace::Init exiting " << *space.get();
@@ -1117,7 +1128,7 @@ class ImageSpaceLoader {
         }
       } else {
         if (fixup_heap_objects_) {
-          method->UpdateObjectsForImageRelocation(ForwardObjectAdapter(this), pointer_size_);
+          method->UpdateObjectsForImageRelocation(ForwardObjectAdapter(this));
         }
         method->UpdateEntrypoints<kWithoutReadBarrier>(ForwardCodeAdapter(this), pointer_size_);
       }
@@ -1218,7 +1229,7 @@ class ImageSpaceLoader {
     }
     ScopedDebugDisallowReadBarriers sddrb(Thread::Current());
     // Need to update the image to be at the target base.
-    const ImageSection& objects_section = image_header.GetImageSection(ImageHeader::kSectionObjects);
+    const ImageSection& objects_section = image_header.GetObjectsSection();
     uintptr_t objects_begin = reinterpret_cast<uintptr_t>(target_base + objects_section.Offset());
     uintptr_t objects_end = reinterpret_cast<uintptr_t>(target_base + objects_section.End());
     FixupObjectAdapter fixup_adapter(boot_image, boot_oat, app_image, app_oat);
@@ -1347,7 +1358,7 @@ class ImageSpaceLoader {
       }
       // In the app image case, the image methods are actually in the boot image.
       image_header.RelocateImageMethods(boot_image.Delta());
-      const auto& class_table_section = image_header.GetImageSection(ImageHeader::kSectionClassTable);
+      const auto& class_table_section = image_header.GetClassTableSection();
       if (class_table_section.Size() > 0u) {
         // Note that we require that ReadFromMemory does not make an internal copy of the elements.
         // This also relies on visit roots not doing any verification which could fail after we update
@@ -1574,9 +1585,7 @@ std::unique_ptr<ImageSpace> ImageSpace::CreateBootImage(const char* image_locati
     if (!Runtime::Current()->IsImageDex2OatEnabled()) {
       local_error_msg = "Patching disabled.";
     } else if (secondary_image) {
-      // We really want a working image. Prune and restart.
-      PruneDalvikCache(image_isa);
-      _exit(1);
+      local_error_msg = "Cannot patch a secondary image.";
     } else if (ImageCreationAllowed(is_global_cache, image_isa, &local_error_msg)) {
       bool patch_success =
           RelocateImage(image_location, cache_filename.c_str(), image_isa, &local_error_msg);

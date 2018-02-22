@@ -23,6 +23,7 @@
 #include <type_traits>
 
 #include "atomic.h"
+#include "globals.h"
 
 namespace art {
 
@@ -62,6 +63,8 @@ enum MethodCompilationStat {
   kBooleanSimplified,
   kIntrinsicRecognized,
   kLoopInvariantMoved,
+  kLoopVectorized,
+  kLoopVectorizedIdiom,
   kSelectGenerated,
   kRemovedInstanceOf,
   kInlinedInvokeVirtualOrInterface,
@@ -86,6 +89,11 @@ enum MethodCompilationStat {
   kNotInlinedWont,
   kNotInlinedRecursiveBudget,
   kNotInlinedProxy,
+  kConstructorFenceGeneratedNew,
+  kConstructorFenceGeneratedFinal,
+  kConstructorFenceRemovedLSE,
+  kConstructorFenceRemovedPFRA,
+  kConstructorFenceRemovedCFRE,
   kLastStat
 };
 
@@ -178,6 +186,8 @@ class OptimizingCompilerStats {
       case kBooleanSimplified : name = "BooleanSimplified"; break;
       case kIntrinsicRecognized : name = "IntrinsicRecognized"; break;
       case kLoopInvariantMoved : name = "LoopInvariantMoved"; break;
+      case kLoopVectorized : name = "LoopVectorized"; break;
+      case kLoopVectorizedIdiom : name = "LoopVectorizedIdiom"; break;
       case kSelectGenerated : name = "SelectGenerated"; break;
       case kRemovedInstanceOf: name = "RemovedInstanceOf"; break;
       case kInlinedInvokeVirtualOrInterface: name = "InlinedInvokeVirtualOrInterface"; break;
@@ -202,6 +212,11 @@ class OptimizingCompilerStats {
       case kNotInlinedWont: name = "NotInlinedWont"; break;
       case kNotInlinedRecursiveBudget: name = "NotInlinedRecursiveBudget"; break;
       case kNotInlinedProxy: name = "NotInlinedProxy"; break;
+      case kConstructorFenceGeneratedNew: name = "ConstructorFenceGeneratedNew"; break;
+      case kConstructorFenceGeneratedFinal: name = "ConstructorFenceGeneratedFinal"; break;
+      case kConstructorFenceRemovedLSE: name = "ConstructorFenceRemovedLSE"; break;
+      case kConstructorFenceRemovedPFRA: name = "ConstructorFenceRemovedPFRA"; break;
+      case kConstructorFenceRemovedCFRE: name = "ConstructorFenceRemovedCFRE"; break;
 
       case kLastStat:
         LOG(FATAL) << "invalid stat "
@@ -215,6 +230,14 @@ class OptimizingCompilerStats {
 
   DISALLOW_COPY_AND_ASSIGN(OptimizingCompilerStats);
 };
+
+inline void MaybeRecordStat(OptimizingCompilerStats* compiler_stats,
+                            MethodCompilationStat stat,
+                            uint32_t count = 1) {
+  if (compiler_stats != nullptr) {
+    compiler_stats->RecordStat(stat, count);
+  }
+}
 
 }  // namespace art
 

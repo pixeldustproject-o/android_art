@@ -23,24 +23,24 @@
 #include "base/callee_save_type.h"
 #include "base/macros.h"
 #include "base/mutex.h"
-#include "dex_instruction.h"
 #include "dex_file_types.h"
+#include "dex_instruction.h"
 #include "gc/allocator_type.h"
 #include "handle.h"
-#include "invoke_type.h"
 #include "jvalue.h"
 
 namespace art {
 
 namespace mirror {
-  class Array;
-  class Class;
-  class Object;
-  class String;
+class Array;
+class Class;
+class Object;
+class String;
 }  // namespace mirror
 
 class ArtField;
 class ArtMethod;
+enum InvokeType : uint32_t;
 class OatQuickMethodHeader;
 class ScopedObjectAccessAlreadyRunnable;
 class Thread;

@@ -19,14 +19,14 @@
 
 #include "art_field.h"
 #include "class_linker.h"
-#include "gc_root-inl.h"
 #include "gc/heap-inl.h"
-#include "obj_ptr-inl.h"
+#include "gc_root-inl.h"
+#include "handle_scope-inl.h"
 #include "mirror/class_loader.h"
 #include "mirror/dex_cache-inl.h"
 #include "mirror/iftable.h"
 #include "mirror/object_array-inl.h"
-#include "handle_scope-inl.h"
+#include "obj_ptr-inl.h"
 #include "scoped_thread_state_change-inl.h"
 
 #include <atomic>
@@ -186,7 +186,8 @@ inline ArtMethod* ClassLinker::GetResolvedMethod(uint32_t method_idx, ArtMethod*
   // lookup in the context of the original method from where it steals the code.
   // However, we delay the GetInterfaceMethodIfProxy() until needed.
   DCHECK(!referrer->IsProxyMethod() || referrer->IsConstructor());
-  ArtMethod* resolved_method = referrer->GetDexCacheResolvedMethod(method_idx, image_pointer_size_);
+  ArtMethod* resolved_method = referrer->GetDexCache<kWithoutReadBarrier>()->GetResolvedMethod(
+      method_idx, image_pointer_size_);
   if (resolved_method == nullptr) {
     return nullptr;
   }
@@ -226,7 +227,8 @@ inline ArtMethod* ClassLinker::ResolveMethod(Thread* self,
   // However, we delay the GetInterfaceMethodIfProxy() until needed.
   DCHECK(!referrer->IsProxyMethod() || referrer->IsConstructor());
   Thread::PoisonObjectPointersIfDebug();
-  ArtMethod* resolved_method = referrer->GetDexCacheResolvedMethod(method_idx, image_pointer_size_);
+  ArtMethod* resolved_method = referrer->GetDexCache<kWithoutReadBarrier>()->GetResolvedMethod(
+      method_idx, image_pointer_size_);
   DCHECK(resolved_method == nullptr || !resolved_method->IsRuntimeMethod());
   if (UNLIKELY(resolved_method == nullptr)) {
     referrer = referrer->GetInterfaceMethodIfProxy(image_pointer_size_);
