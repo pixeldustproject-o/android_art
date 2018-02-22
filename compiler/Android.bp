@@ -201,6 +201,12 @@ art_cc_defaults {
     ],
     include_dirs: ["art/disassembler"],
     export_include_dirs: ["."],
+
+    arch: {
+        arm: {
+            instruction_set: "arm",
+        },
+    },
 }
 
 gensrcs {
@@ -255,6 +261,15 @@ art_cc_library {
     shared_libs: [
         "libart",
     ],
+
+    target: {
+        android: {
+            lto: {
+                thin: true,
+            },
+
+        },
+    },
 }
 
 art_cc_library {

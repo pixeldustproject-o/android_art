@@ -27,12 +27,25 @@ art_cc_defaults {
     export_include_dirs: ["."],
     shared_libs: ["libbase"],
     static_libs: ["libz"],
+    arch: {
+        arm: {
+            instruction_set: "arm",
+         },
+     },
 }
 
 art_cc_library {
     name: "libart-dexlayout",
     defaults: ["libart-dexlayout-defaults"],
     shared_libs: ["libart"],
+
+    target: {
+        android: {
+            lto: {
+                 thin: true,
+            },
+        },
+    },
 }
 
 art_cc_library {

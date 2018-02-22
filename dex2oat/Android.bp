@@ -57,6 +57,12 @@ art_cc_defaults {
     shared: {
         shared_libs: ["libcrypto"],
     },
+
+    arch: {
+        arm: {
+            instruction_set: "arm",
+        },
+    },
 }
 
 gensrcs {
@@ -122,6 +128,12 @@ cc_defaults {
         "dex2oat_headers",
         "art_cmdlineparser_headers",
     ],
+
+    arch: {
+        arm: {
+            instruction_set: "arm",
+        },
+    },
 }
 
 art_cc_binary {
@@ -140,6 +152,14 @@ art_cc_binary {
     static_libs: [
         "libart-dex2oat",
     ],
+    target: {
+        android: {
+            lto: {
+                thin: true,
+            },
+
+        },
+    },
 }
 
 art_cc_binary {
