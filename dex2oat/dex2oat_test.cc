@@ -1121,7 +1121,7 @@ class Dex2oatClassLoaderContextTest : public Dex2oatTest {
     std::string expected_classpath_key;
     {
       // Open the oat file to get the expected classpath.
-      OatFileAssistant oat_file_assistant(location.c_str(), kRuntimeISA, false);
+      OatFileAssistant oat_file_assistant(location.c_str(), kRuntimeISA, false, false);
       std::unique_ptr<OatFile> oat_file(oat_file_assistant.GetBestOatFile());
       std::vector<std::unique_ptr<const DexFile>> oat_dex_files =
           OatFileAssistant::LoadDexFiles(*oat_file, location.c_str());
@@ -1882,6 +1882,34 @@ TEST_F(Dex2oatTest, CompactDexGenerationFailure) {
     ASSERT_TRUE(dex_file != nullptr) << error_msg;
     ASSERT_TRUE(!dex_file->IsCompactDexFile());
   }
+}
+
+TEST_F(Dex2oatTest, CompactDexGenerationFailureMultiDex) {
+  // Create a multidex file with only one dex that gets rejected for cdex conversion.
+  ScratchFile apk_file;
+  {
+    FILE* file = fdopen(apk_file.GetFd(), "w+b");
+    ZipWriter writer(file);
+    // Add vdex to zip.
+    writer.StartEntry("classes.dex", ZipWriter::kCompress);
+    size_t length = 0u;
+    std::unique_ptr<uint8_t[]> bytes(DecodeBase64(kDuplicateMethodInputDex, &length));
+    ASSERT_GE(writer.WriteBytes(&bytes[0], length), 0);
+    writer.FinishEntry();
+    writer.StartEntry("classes2.dex", ZipWriter::kCompress);
+    std::unique_ptr<const DexFile> dex(OpenTestDexFile("ManyMethods"));
+    ASSERT_GE(writer.WriteBytes(dex->Begin(), dex->Size()), 0);
+    writer.FinishEntry();
+    writer.Finish();
+    ASSERT_EQ(apk_file.GetFile()->Flush(), 0);
+  }
+  const std::string dex_location = apk_file.GetFilename();
+  const std::string odex_location = GetOdexDir() + "/output.odex";
+  GenerateOdexForTest(dex_location,
+                      odex_location,
+                      CompilerFilter::kQuicken,
+                      { "--compact-dex-level=fast" },
+                      true);
 }
 
 TEST_F(Dex2oatTest, DontExtract) {

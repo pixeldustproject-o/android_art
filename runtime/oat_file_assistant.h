@@ -119,9 +119,13 @@ class OatFileAssistant {
   //
   // load_executable should be true if the caller intends to try and load
   // executable code for this dex location.
+  //
+  // only_load_system_executable should be true if the caller intends to have
+  // only oat files from /system loaded executable.
   OatFileAssistant(const char* dex_location,
                    const InstructionSet isa,
-                   bool load_executable);
+                   bool load_executable,
+                   bool only_load_system_executable = false);
 
   // Similar to this(const char*, const InstructionSet, bool), however, if a valid zip_fd is
   // provided, vdex, oat, and zip files will be read from vdex_fd, oat_fd and zip_fd respectively.
@@ -129,6 +133,7 @@ class OatFileAssistant {
   OatFileAssistant(const char* dex_location,
                    const InstructionSet isa,
                    bool load_executable,
+                   bool only_load_system_executable,
                    int vdex_fd,
                    int oat_fd,
                    int zip_fd);
@@ -500,6 +505,12 @@ class OatFileAssistant {
 
   // Whether we will attempt to load oat files executable.
   bool load_executable_ = false;
+
+  // Whether only oat files on /system are loaded executable.
+  const bool only_load_system_executable_ = false;
+  // Whether the potential zip file only contains uncompressed dex.
+  // Will be set during GetRequiredDexChecksums.
+  bool zip_file_only_contains_uncompressed_dex_ = true;
 
   // Cached value of the required dex checksums.
   // This should be accessed only by the GetRequiredDexChecksums() method.

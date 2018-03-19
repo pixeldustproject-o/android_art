@@ -72,9 +72,12 @@ std::ostream& operator << (std::ostream& stream, const OatFileAssistant::OatStat
 
 OatFileAssistant::OatFileAssistant(const char* dex_location,
                                    const InstructionSet isa,
-                                   bool load_executable)
+                                   bool load_executable,
+                                   bool only_load_system_executable)
     : OatFileAssistant(dex_location,
-                       isa, load_executable,
+                       isa,
+                       load_executable,
+                       only_load_system_executable,
                        -1 /* vdex_fd */,
                        -1 /* oat_fd */,
                        -1 /* zip_fd */) {}
@@ -83,11 +86,13 @@ OatFileAssistant::OatFileAssistant(const char* dex_location,
 OatFileAssistant::OatFileAssistant(const char* dex_location,
                                    const InstructionSet isa,
                                    bool load_executable,
+                                   bool only_load_system_executable,
                                    int vdex_fd,
                                    int oat_fd,
                                    int zip_fd)
     : isa_(isa),
       load_executable_(load_executable),
+      only_load_system_executable_(only_load_system_executable),
       odex_(this, /*is_oat_location*/ false),
       oat_(this, /*is_oat_location*/ true),
       zip_fd_(zip_fd) {
@@ -531,6 +536,18 @@ OatFileAssistant::OatStatus OatFileAssistant::GivenOatFileStatus(const OatFile& 
     VLOG(oat) << "Image checksum test skipped for compiler filter " << current_compiler_filter;
   }
 
+  // zip_file_only_contains_uncompressed_dex_ is only set during fetching the dex checksums.
+  DCHECK(required_dex_checksums_attempted_);
+  if (only_load_system_executable_ &&
+      !LocationIsOnSystem(file.GetLocation().c_str()) &&
+      file.ContainsDexCode() &&
+      zip_file_only_contains_uncompressed_dex_) {
+    LOG(ERROR) << "Not loading "
+               << dex_location_
+               << ": oat file has dex code, but APK has uncompressed dex code";
+    return kOatDexOutOfDate;
+  }
+
   if (CompilerFilter::IsAotCompilationEnabled(current_compiler_filter)) {
     if (!file.IsPic()) {
       const ImageInfo* image_info = GetImageInfo();
@@ -895,7 +912,8 @@ const std::vector<uint32_t>* OatFileAssistant::GetRequiredDexChecksums() {
     if (dex_file_loader.GetMultiDexChecksums(dex_location_.c_str(),
                                              &cached_required_dex_checksums_,
                                              &error_msg,
-                                             zip_fd_)) {
+                                             zip_fd_,
+                                             &zip_file_only_contains_uncompressed_dex_)) {
       required_dex_checksums_found_ = true;
       has_original_dex_files_ = true;
     } else {
@@ -1143,6 +1161,10 @@ const OatFile* OatFileAssistant::OatFileInfo::GetFile() {
   if (!load_attempted_) {
     load_attempted_ = true;
     if (filename_provided_) {
+      bool executable = oat_file_assistant_->load_executable_;
+      if (executable && oat_file_assistant_->only_load_system_executable_) {
+        executable = LocationIsOnSystem(filename_.c_str());
+      }
       std::string error_msg;
       if (use_fd_) {
         if (oat_fd_ >= 0 && vdex_fd_ >= 0) {
@@ -1151,7 +1173,7 @@ const OatFile* OatFileAssistant::OatFileInfo::GetFile() {
                                     filename_.c_str(),
                                     nullptr,
                                     nullptr,
-                                    oat_file_assistant_->load_executable_,
+                                    executable,
                                     false /* low_4gb */,
                                     oat_file_assistant_->dex_location_.c_str(),
                                     &error_msg));
@@ -1161,7 +1183,7 @@ const OatFile* OatFileAssistant::OatFileInfo::GetFile() {
                                   filename_.c_str(),
                                   nullptr,
                                   nullptr,
-                                  oat_file_assistant_->load_executable_,
+                                  executable,
                                   false /* low_4gb */,
                                   oat_file_assistant_->dex_location_.c_str(),
                                   &error_msg));

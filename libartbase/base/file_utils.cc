@@ -262,4 +262,9 @@ std::string ReplaceFileExtension(const std::string& filename, const std::string&
   }
 }
 
+bool LocationIsOnSystem(const char* location) {
+  UniqueCPtr<const char[]> path(realpath(location, nullptr));
+  return path != nullptr && android::base::StartsWith(path.get(), GetAndroidRoot().c_str());
+}
+
 }  // namespace art
