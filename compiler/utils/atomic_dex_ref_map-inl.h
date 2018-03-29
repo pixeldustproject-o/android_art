@@ -75,6 +75,17 @@ inline bool AtomicDexRefMap<DexFileReferenceType, Value>::Get(const DexFileRefer
 }
 
 template <typename DexFileReferenceType, typename Value>
+inline bool AtomicDexRefMap<DexFileReferenceType, Value>::Remove(const DexFileReferenceType& ref,
+                                                                 Value* out) {
+  ElementArray* const array = GetArray(ref.dex_file);
+  if (array == nullptr) {
+    return false;
+  }
+  *out = (*array)[ref.index].exchange(nullptr, std::memory_order_seq_cst);
+  return true;
+}
+
+template <typename DexFileReferenceType, typename Value>
 inline void AtomicDexRefMap<DexFileReferenceType, Value>::AddDexFile(const DexFile* dex_file) {
   arrays_.Put(dex_file, std::move(ElementArray(NumberOfDexIndices(dex_file))));
 }

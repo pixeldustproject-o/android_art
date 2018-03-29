@@ -15,27 +15,15 @@
  */
 
 #include <vector>
-#include <sys/mman.h>
 
-<<<<<<< HEAD:libdexfile/dex/compact_dex_debug_info_test.cc
-#include "base/logging.h"
-#include "dex/compact_dex_debug_info.h"
-=======
 #include <android-base/logging.h>
+
 #include "dex/compact_offset_table.h"
->>>>>>> 5e3cfa295a... Generalize CompactDexDebugInfo offset table:libdexfile/dex/compact_offset_table_test.cc
 #include "gtest/gtest.h"
-#include "mem_map.h"
 
 namespace art {
 
-<<<<<<< HEAD:libdexfile/dex/compact_dex_debug_info_test.cc
 TEST(CompactDexDebugInfoTest, TestBuildAndAccess) {
-  MemMap::Init();
-
-=======
-TEST(CompactOffsetTableTest, TestBuildAndAccess) {
->>>>>>> 5e3cfa295a... Generalize CompactDexDebugInfo offset table:libdexfile/dex/compact_offset_table_test.cc
   const size_t kDebugInfoMinOffset = 1234567;
   std::vector<uint32_t> offsets = {
       0, 17, 2, 3, 11, 0, 0, 0, 0, 1, 0, 1552, 100, 122, 44, 1234567, 0, 0,
@@ -64,23 +52,12 @@ TEST(CompactOffsetTableTest, TestBuildAndAccess) {
   std::string error_msg;
   // Leave some extra room since we don't copy the table at the start (for testing).
   constexpr size_t kExtraOffset = 4 * 128;
-  std::unique_ptr<MemMap> fake_dex(MemMap::MapAnonymous("fake dex",
-                                                        nullptr,
-                                                        data.size() + kExtraOffset,
-                                                        PROT_READ | PROT_WRITE,
-                                                        /*low_4gb*/ false,
-                                                        /*reuse*/ false,
-                                                        &error_msg));
-  ASSERT_TRUE(fake_dex != nullptr) << error_msg;
-  std::copy(data.begin(), data.end(), fake_dex->Begin() + kExtraOffset);
+  std::vector<uint8_t> fake_dex(data.size() + kExtraOffset);
+  std::copy(data.begin(), data.end(), fake_dex.data() + kExtraOffset);
 
-<<<<<<< HEAD:libdexfile/dex/compact_dex_debug_info_test.cc
-  CompactDexDebugInfoOffsetTable::Accessor accessor(fake_dex->Begin() + kExtraOffset,
+  CompactDexDebugInfoOffsetTable::Accessor accessor(fake_dex.data() + kExtraOffset,
                                                     base_offset,
                                                     table_offset);
-=======
-  CompactOffsetTable::Accessor accessor(fake_dex.data() + kExtraOffset, min_offset, table_offset);
->>>>>>> 5e3cfa295a... Generalize CompactDexDebugInfo offset table:libdexfile/dex/compact_offset_table_test.cc
   for (size_t i = 0; i < offsets.size(); ++i) {
     EXPECT_EQ(offsets[i], accessor.GetOffset(i));
   }
@@ -95,7 +72,7 @@ TEST(CompactOffsetTableTest, TestBuildAndAccess) {
                             /*out*/ &table_offset);
   EXPECT_LT(sorted_data.size(), data.size());
   {
-    ScopedLogSeverity sls(LogSeverity::INFO);
+    android::base::ScopedLogSeverity sls(android::base::LogSeverity::INFO);
     LOG(INFO) << "raw size " << before_size
               << " table size " << data.size()
               << " sorted table size " << sorted_data.size();

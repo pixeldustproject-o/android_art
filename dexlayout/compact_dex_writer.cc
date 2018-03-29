@@ -404,6 +404,11 @@ void CompactDexWriter::Write(DexContainer* output)  {
   }
   // Trim the map to make it sized as large as the dex file.
   output->GetMainSection()->Resize(header_->FileSize());
+
+  // Clear the dedupe to prevent interdex code item deduping. This does not currently work well with
+  // dex2oat's class unloading. The issue is that verification encounters quickened opcodes after
+  // the first dex gets unloaded.
+  code_item_dedupe_->Clear();
 }
 
 std::unique_ptr<DexContainer> CompactDexWriter::CreateDexContainer() const {

@@ -25,6 +25,7 @@
 #include "base/os.h"
 #include "base/stl_util.h"
 #include "base/unix_file/fd_file.h"
+#include "base64_test_util.h"
 #include "code_item_accessors-inl.h"
 #include "common_runtime_test.h"
 #include "dex/descriptors_names.h"
