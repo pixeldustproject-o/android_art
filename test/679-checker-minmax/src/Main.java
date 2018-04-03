@@ -545,6 +545,14 @@ public class Main {
     expectEquals(20L, maxL(10L));
     expectEquals(25L, maxL(25L));
     // Types.
+    expectEquals(10, minI(10));
+    expectEquals(20, minI(25));
+    expectEquals(10L, minL(10L));
+    expectEquals(20L, minL(25L));
+    expectEquals(20, maxI(10));
+    expectEquals(25, maxI(25));
+    expectEquals(20L, maxL(10L));
+    expectEquals(25L, maxL(25L));
     expectEquals(10, min1(10, 20));
     expectEquals(10, min2(10, 20));
     expectEquals(10, min3(10, 20));
