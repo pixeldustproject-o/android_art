@@ -32,6 +32,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "base/logging.h"  // For InitLogging.
 #include "dex/code_item_accessors-inl.h"
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_loader.h"

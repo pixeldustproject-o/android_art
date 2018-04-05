@@ -28,6 +28,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <android-base/logging.h>
+
+#include <base/logging.h>  // For InitLogging.
+
 namespace art {
 
 static const char* gProgName = "dexdump";

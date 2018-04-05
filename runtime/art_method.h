@@ -19,21 +19,23 @@
 
 #include <cstddef>
 
+#include <android-base/logging.h>
+
 #include "base/array_ref.h"
 #include "base/bit_utils.h"
 #include "base/casts.h"
 #include "base/enums.h"
 #include "base/iteration_range.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/runtime_debug.h"
 #include "dex/code_item_accessors.h"
 #include "dex/dex_file.h"
 #include "dex/dex_instruction_iterator.h"
 #include "dex/modifiers.h"
+#include "dex/primitive.h"
 #include "gc_root.h"
 #include "obj_ptr.h"
 #include "offsets.h"
-#include "primitive.h"
 #include "read_barrier_option.h"
 
 namespace art {

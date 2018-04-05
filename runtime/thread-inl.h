@@ -21,6 +21,7 @@
 
 #include "base/aborting.h"
 #include "base/casts.h"
+#include "base/logging.h"  // For gAborting.
 #include "base/mutex-inl.h"
 #include "base/time_utils.h"
 #include "jni_env_ext.h"

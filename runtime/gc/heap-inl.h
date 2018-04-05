@@ -21,7 +21,9 @@
 
 #include "allocation_listener.h"
 #include "base/logging.h"  // For VLOG.
+#include "base/quasi_atomic.h"
 #include "base/time_utils.h"
+#include "base/utils.h"
 #include "gc/accounting/atomic_stack.h"
 #include "gc/accounting/card_table-inl.h"
 #include "gc/allocation_record.h"
@@ -35,7 +37,6 @@
 #include "obj_ptr-inl.h"
 #include "runtime.h"
 #include "thread-inl.h"
-#include "utils.h"
 #include "verify_object.h"
 
 namespace art {

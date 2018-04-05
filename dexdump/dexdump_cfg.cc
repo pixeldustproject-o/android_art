@@ -23,6 +23,7 @@
 #include <map>
 #include <ostream>
 #include <set>
+#include <sstream>
 
 #include "dex/code_item_accessors-inl.h"
 #include "dex/dex_file-inl.h"

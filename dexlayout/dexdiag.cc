@@ -26,6 +26,8 @@
 
 #include "android-base/stringprintf.h"
 
+#include "base/logging.h"  // For InitLogging.
+#include "base/mutex.h"
 #include "base/stringpiece.h"
 
 #include "dex/dex_file.h"
@@ -466,6 +468,7 @@ static int DexDiagMain(int argc, char* argv[]) {
   }
 
   // Art specific set up.
+  Locks::Init();
   InitLogging(argv, Runtime::Abort);
   MemMap::Init();
 

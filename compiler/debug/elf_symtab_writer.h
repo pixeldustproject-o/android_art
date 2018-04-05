@@ -19,9 +19,9 @@
 
 #include <unordered_set>
 
+#include "base/utils.h"
 #include "debug/method_debug_info.h"
 #include "linker/elf_builder.h"
-#include "utils.h"
 
 namespace art {
 namespace debug {

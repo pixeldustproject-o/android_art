@@ -53,16 +53,23 @@ art_cc_library {
     ],
 }
 
-art_cc_binary {
-    name: "dexlayout",
+cc_defaults {
+    name: "dexlayout-defaults",
     defaults: ["art_defaults"],
     host_supported: true,
     srcs: ["dexlayout_main.cc"],
-    cflags: ["-Wall"],
     shared_libs: [
+        "libbase",
+    ],
+}
+
+art_cc_binary {
+    name: "dexlayout",
+    defaults: ["dexlayout-defaults"],
+    shared_libs: [
+        "libprofile",
         "libart",
         "libart-dexlayout",
-        "libbase",
     ],
 }
 
@@ -81,6 +88,7 @@ art_cc_binary {
     shared_libs: [
         "libart",
         "libart-dexlayout",
+        "libbase",
     ],
     target: {
         android: {

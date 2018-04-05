@@ -25,17 +25,17 @@
 
 #include "jni.h"
 
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <backtrace/Backtrace.h>
-#include "android-base/stringprintf.h"
 
 #include "base/file_utils.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/utils.h"
 #include "gc/heap.h"
 #include "gc/space/image_space.h"
 #include "oat_file.h"
 #include "runtime.h"
-#include "utils.h"
 
 namespace art {
 

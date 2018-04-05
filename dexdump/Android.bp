@@ -45,7 +45,7 @@ art_cc_binary {
     host_supported: true,
     device_supported: false,
     static_libs: [
-        "libbase",
+        "libdexfile",
     ] + art_static_dependencies,
     target: {
         darwin: {

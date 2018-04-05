@@ -17,10 +17,11 @@
 #ifndef ART_RUNTIME_METHOD_INFO_H_
 #define ART_RUNTIME_METHOD_INFO_H_
 
-#include "base/logging.h"
+#include <android-base/logging.h>
+
+#include "base/leb128.h"
 #include "base/macros.h"
-#include "leb128.h"
-#include "bit_memory_region.h"
+#include "base/memory_region.h"
 
 namespace art {
 

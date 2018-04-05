@@ -17,14 +17,12 @@
 #ifndef ART_LIBDEXFILE_DEX_DEX_FILE_INL_H_
 #define ART_LIBDEXFILE_DEX_DEX_FILE_INL_H_
 
-#include "base/bit_utils.h"
 #include "base/casts.h"
-#include "base/logging.h"
+#include "base/leb128.h"
 #include "base/stringpiece.h"
 #include "compact_dex_file.h"
 #include "dex_file.h"
 #include "invoke_type.h"
-#include "leb128.h"
 #include "standard_dex_file.h"
 
 namespace art {

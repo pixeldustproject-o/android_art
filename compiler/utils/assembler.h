@@ -19,6 +19,8 @@
 
 #include <vector>
 
+#include <android-base/logging.h>
+
 #include "arch/instruction_set.h"
 #include "arch/instruction_set_features.h"
 #include "arm/constants_arm.h"
@@ -26,12 +28,11 @@
 #include "base/arena_object.h"
 #include "base/array_ref.h"
 #include "base/enums.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory_region.h"
 #include "debug/dwarf/debug_frame_opcode_writer.h"
 #include "label.h"
 #include "managed_register.h"
-#include "memory_region.h"
 #include "mips/constants_mips.h"
 #include "offsets.h"
 #include "x86/constants_x86.h"

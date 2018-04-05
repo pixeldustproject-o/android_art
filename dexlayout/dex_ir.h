@@ -24,11 +24,11 @@
 #include <map>
 #include <vector>
 
+#include "base/leb128.h"
 #include "base/stl_util.h"
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_types.h"
 #include "dex/utf.h"
-#include "leb128.h"
 
 namespace art {
 namespace dex_ir {
@@ -486,11 +486,11 @@ class Item {
   virtual ~Item() { }
 
   // Return the assigned offset.
-  uint32_t GetOffset() const {
+  uint32_t GetOffset() const WARN_UNUSED {
     CHECK(OffsetAssigned());
     return offset_;
   }
-  uint32_t GetSize() const { return size_; }
+  uint32_t GetSize() const WARN_UNUSED { return size_; }
   void SetOffset(uint32_t offset) { offset_ = offset; }
   void SetSize(uint32_t size) { size_ = size; }
   bool OffsetAssigned() const {

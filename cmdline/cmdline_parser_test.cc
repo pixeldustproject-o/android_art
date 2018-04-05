@@ -20,11 +20,12 @@
 
 #include "gtest/gtest.h"
 
+#include "base/mutex.h"
+#include "base/utils.h"
 #include "experimental_flags.h"
 #include "parsed_options.h"
 #include "runtime.h"
 #include "runtime_options.h"
-#include "utils.h"
 
 #define EXPECT_NULL(expected) EXPECT_EQ(reinterpret_cast<const void*>(expected), \
                                         reinterpret_cast<void*>(nullptr));
@@ -125,6 +126,7 @@ class CmdlineParserTest : public ::testing::Test {
   using RuntimeParser = ParsedOptions::RuntimeParser;
 
   static void SetUpTestCase() {
+    art::Locks::Init();
     art::InitLogging(nullptr, art::Runtime::Abort);  // argv = null
   }
 

@@ -20,6 +20,7 @@
 #include "array.h"
 #include "base/bit_utils.h"
 #include "dex/dex_file_types.h"
+#include "base/mutex.h"
 #include "object.h"
 #include "object_array.h"
 

@@ -16,10 +16,10 @@
 
 #include "utf.h"
 
-#include "android-base/stringprintf.h"
-#include "android-base/strings.h"
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
+#include <android-base/strings.h>
 
-#include "base/logging.h"
 #include "base/casts.h"
 #include "utf-inl.h"
 

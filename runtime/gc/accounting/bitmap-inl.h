@@ -21,9 +21,10 @@
 
 #include <memory>
 
-#include "atomic.h"
+#include <android-base/logging.h>
+
+#include "base/atomic.h"
 #include "base/bit_utils.h"
-#include "base/logging.h"
 
 namespace art {
 namespace gc {

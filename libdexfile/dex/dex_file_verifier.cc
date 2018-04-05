@@ -22,10 +22,10 @@
 
 #include "android-base/stringprintf.h"
 
+#include "base/leb128.h"
 #include "code_item_accessors-inl.h"
 #include "descriptors_names.h"
 #include "dex_file-inl.h"
-#include "leb128.h"
 #include "modifiers.h"
 #include "utf-inl.h"
 
@@ -392,6 +392,7 @@ bool DexFileVerifier::CheckMap() {
 
   uint32_t count = map->size_;
   uint32_t last_offset = 0;
+  uint32_t last_type = 0;
   uint32_t data_item_count = 0;
   uint32_t data_items_left = header_->data_size_;
   uint32_t used_bits = 0;
@@ -404,7 +405,11 @@ bool DexFileVerifier::CheckMap() {
   // Check the items listed in the map.
   for (uint32_t i = 0; i < count; i++) {
     if (UNLIKELY(last_offset >= item->offset_ && i != 0)) {
-      ErrorStringPrintf("Out of order map item: %x then %x", last_offset, item->offset_);
+      ErrorStringPrintf("Out of order map item: %x then %x for type %x last type was %x",
+                        last_offset,
+                        item->offset_,
+                        static_cast<uint32_t>(item->type_),
+                        last_type);
       return false;
     }
     if (UNLIKELY(item->offset_ >= header_->file_size_)) {
@@ -440,6 +445,7 @@ bool DexFileVerifier::CheckMap() {
 
     used_bits |= bit;
     last_offset = item->offset_;
+    last_type = item->type_;
     item++;
   }
 
@@ -1250,7 +1256,7 @@ bool DexFileVerifier::CheckIntraCodeItem() {
     // Note: Clang does not specify alignment guarantees for alloca. So align by hand.
     handler_offsets =
         AlignDown(reinterpret_cast<uint32_t*>(alloca((handlers_size + 1) * sizeof(uint32_t))),
-                  alignof(uint32_t[]));
+                alignof(uint32_t[]));
   } else {
     handler_offsets_uptr.reset(new uint32_t[handlers_size]);
     handler_offsets = handler_offsets_uptr.get();

@@ -23,10 +23,11 @@
 #include <memory>
 #include <string>
 
-#include "atomic.h"
-#include "base/logging.h"
+#include <android-base/logging.h>
+
+#include "base/atomic.h"
 #include "base/macros.h"
-#include "mem_map.h"
+#include "base/mem_map.h"
 #include "stack_reference.h"
 
 // This implements a double-ended queue (deque) with various flavors of PushBack operations,

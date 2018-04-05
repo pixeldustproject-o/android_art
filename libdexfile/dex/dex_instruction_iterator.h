@@ -19,7 +19,7 @@
 
 #include <iterator>
 
-#include "base/logging.h"
+#include <android-base/logging.h>
 
 #include "base/macros.h"
 #include "dex_instruction.h"

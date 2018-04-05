@@ -24,6 +24,7 @@
 
 #include "art_dex_file_loader.h"
 #include "base/bit_utils.h"
+#include "base/leb128.h"
 #include "base/macros.h"
 #include "base/unix_file/fd_file.h"
 #include "common_runtime_test.h"
@@ -31,7 +32,6 @@
 #include "dex_file-inl.h"
 #include "dex_file_loader.h"
 #include "dex_file_types.h"
-#include "leb128.h"
 #include "scoped_thread_state_change-inl.h"
 #include "standard_dex_file.h"
 #include "thread-current-inl.h"

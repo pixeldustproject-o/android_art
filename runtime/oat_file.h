@@ -23,18 +23,20 @@
 
 #include "base/array_ref.h"
 #include "base/mutex.h"
+#include "base/os.h"
+#include "base/safe_map.h"
 #include "base/stringpiece.h"
+#include "base/tracking_safe_map.h"
+#include "base/utils.h"
 #include "class_status.h"
 #include "compiler_filter.h"
 #include "dex/dex_file.h"
 #include "dex/dex_file_layout.h"
+#include "dex/type_lookup_table.h"
 #include "dex/utf.h"
 #include "index_bss_mapping.h"
 #include "mirror/object.h"
 #include "oat.h"
-#include "os.h"
-#include "type_lookup_table.h"
-#include "utils.h"
 
 namespace art {
 

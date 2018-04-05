@@ -27,8 +27,11 @@
 #include "base/enums.h"
 #include "base/file_magic.h"
 #include "base/logging.h"  // For VLOG
+#include "base/os.h"
+#include "base/safe_map.h"
 #include "base/stl_util.h"
 #include "base/unix_file/fd_file.h"
+#include "base/zip_archive.h"
 #include "class_linker.h"
 #include "class_table-inl.h"
 #include "compiled_method-inl.h"
@@ -38,7 +41,9 @@
 #include "dex/dex_file_loader.h"
 #include "dex/dex_file_types.h"
 #include "dex/standard_dex_file.h"
+#include "dex/type_lookup_table.h"
 #include "dex/verification_results.h"
+#include "dex_container.h"
 #include "dexlayout.h"
 #include "driver/compiler_driver-inl.h"
 #include "driver/compiler_options.h"
@@ -58,15 +63,11 @@
 #include "mirror/dex_cache-inl.h"
 #include "mirror/object-inl.h"
 #include "oat_quick_method_header.h"
-#include "os.h"
 #include "quicken_info.h"
-#include "safe_map.h"
 #include "scoped_thread_state_change-inl.h"
-#include "type_lookup_table.h"
 #include "utils/dex_cache_arrays_layout-inl.h"
 #include "vdex_file.h"
 #include "verifier/verifier_deps.h"
-#include "zip_archive.h"
 
 namespace art {
 namespace linker {
@@ -3501,13 +3502,15 @@ bool OatWriter::LayoutAndWriteDexFile(OutputStream* out, OatDexFile* oat_dex_fil
     return false;
   }
   Options options;
-  options.output_to_memmap_ = true;
   options.compact_dex_level_ = compact_dex_level_;
   options.update_checksum_ = true;
-  DexLayout dex_layout(options, profile_compilation_info_, nullptr);
-  dex_layout.ProcessDexFile(location.c_str(), dex_file.get(), 0);
-  std::unique_ptr<MemMap> mem_map(dex_layout.GetAndReleaseMemMap());
-  if (!WriteDexFile(out, oat_dex_file, mem_map->Begin(), /* update_input_vdex */ false)) {
+  DexLayout dex_layout(options, profile_compilation_info_, /*file*/ nullptr, /*header*/ nullptr);
+  std::unique_ptr<DexContainer> out_data;
+  dex_layout.ProcessDexFile(location.c_str(), dex_file.get(), 0, &out_data);
+  if (!WriteDexFile(out,
+                    oat_dex_file,
+                    out_data->GetMainSection()->Begin(),
+                    /* update_input_vdex */ false)) {
     return false;
   }
   oat_dex_file->dex_sections_layout_ = dex_layout.GetSections();

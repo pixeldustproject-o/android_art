@@ -20,8 +20,10 @@
 
 #include "art_method-inl.h"
 #include "base/enums.h"
-#include "base/logging.h"
+#include "base/logging.h"  // For VLOG.
 #include "base/memory_tool.h"
+#include "base/runtime_debug.h"
+#include "base/utils.h"
 #include "debugger.h"
 #include "entrypoints/runtime_asm_entrypoints.h"
 #include "interpreter/interpreter.h"
@@ -39,7 +41,6 @@
 #include "stack_map.h"
 #include "thread-inl.h"
 #include "thread_list.h"
-#include "utils.h"
 
 namespace art {
 namespace jit {

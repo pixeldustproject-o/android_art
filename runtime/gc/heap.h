@@ -22,10 +22,15 @@
 #include <unordered_set>
 #include <vector>
 
+#include <android-base/logging.h>
+
 #include "allocator_type.h"
 #include "arch/instruction_set.h"
-#include "atomic.h"
+#include "base/atomic.h"
+#include "base/macros.h"
 #include "base/mutex.h"
+#include "base/runtime_debug.h"
+#include "base/safe_map.h"
 #include "base/time_utils.h"
 #include "gc/collector/gc_type.h"
 #include "gc/collector/iteration.h"
@@ -38,7 +43,6 @@
 #include "offsets.h"
 #include "process_state.h"
 #include "read_barrier_config.h"
-#include "safe_map.h"
 #include "verify_object.h"
 
 namespace art {

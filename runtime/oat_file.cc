@@ -40,28 +40,28 @@
 #include "base/enums.h"
 #include "base/file_utils.h"
 #include "base/logging.h"  // For VLOG_IS_ON.
+#include "base/mem_map.h"
+#include "base/os.h"
 #include "base/stl_util.h"
 #include "base/systrace.h"
 #include "base/unix_file/fd_file.h"
+#include "base/utils.h"
 #include "dex/art_dex_file_loader.h"
 #include "dex/dex_file_loader.h"
 #include "dex/dex_file_types.h"
 #include "dex/standard_dex_file.h"
+#include "dex/type_lookup_table.h"
 #include "dex/utf-inl.h"
 #include "elf_file.h"
 #include "elf_utils.h"
 #include "gc_root.h"
 #include "gc/space/image_space.h"
-#include "mem_map.h"
 #include "mirror/class.h"
 #include "mirror/object-inl.h"
 #include "oat.h"
 #include "oat_file-inl.h"
 #include "oat_file_manager.h"
-#include "os.h"
 #include "runtime.h"
-#include "type_lookup_table.h"
-#include "utils.h"
 #include "vdex_file.h"
 
 namespace art {
@@ -208,11 +208,11 @@ OatFileBase* OatFileBase::OpenOatFile(const std::string& vdex_filename,
     return nullptr;
   }
 
+  ret->PreSetup(elf_filename);
+
   if (!ret->LoadVdex(vdex_filename, writable, low_4gb, error_msg)) {
     return nullptr;
   }
-
-  ret->PreSetup(elf_filename);
 
   if (!ret->Setup(abs_dex_location, error_msg)) {
     return nullptr;
@@ -248,11 +248,11 @@ OatFileBase* OatFileBase::OpenOatFile(int vdex_fd,
     return nullptr;
   }
 
+  ret->PreSetup(oat_location);
+
   if (!ret->LoadVdex(vdex_fd, vdex_location, writable, low_4gb, error_msg)) {
     return nullptr;
   }
-
-  ret->PreSetup(oat_location);
 
   if (!ret->Setup(abs_dex_location, error_msg)) {
     return nullptr;
@@ -1726,9 +1726,9 @@ void OatDexFile::MadviseDexFile(const DexFile& dex_file, MadviseState state) {
     // Default every dex file to MADV_RANDOM when its loaded by default for low ram devices.
     // Other devices have enough page cache to get performance benefits from loading more pages
     // into the page cache.
-    MadviseLargestPageAlignedRegion(dex_file.Begin(),
-                                    dex_file.Begin() + dex_file.Size(),
-                                    MADV_RANDOM);
+    DexLayoutSection::MadviseLargestPageAlignedRegion(dex_file.Begin(),
+                                                      dex_file.Begin() + dex_file.Size(),
+                                                      MADV_RANDOM);
   }
   const OatFile::OatDexFile* oat_dex_file = dex_file.GetOatDexFile();
   if (oat_dex_file != nullptr) {

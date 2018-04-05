@@ -21,10 +21,12 @@
 #include "art_field-inl.h"
 #include "art_method-inl.h"
 #include "base/logging.h"  // For VLOG.
+#include "base/utils.h"
 #include "class-inl.h"
 #include "class_ext.h"
 #include "class_linker-inl.h"
 #include "class_loader.h"
+#include "dex/descriptors_names.h"
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_annotations.h"
 #include "dex_cache.h"
@@ -39,7 +41,6 @@
 #include "runtime.h"
 #include "thread.h"
 #include "throwable.h"
-#include "utils.h"
 #include "well_known_classes.h"
 
 namespace art {

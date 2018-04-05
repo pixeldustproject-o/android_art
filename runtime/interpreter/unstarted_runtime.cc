@@ -26,15 +26,18 @@
 #include <locale>
 #include <unordered_map>
 
-#include "android-base/stringprintf.h"
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 
 #include "art_method-inl.h"
 #include "base/casts.h"
 #include "base/enums.h"
-#include "base/logging.h"
 #include "base/macros.h"
+#include "base/quasi_atomic.h"
+#include "base/zip_archive.h"
 #include "class_linker.h"
 #include "common_throws.h"
+#include "dex/descriptors_names.h"
 #include "entrypoints/entrypoint_utils-inl.h"
 #include "gc/reference_processor.h"
 #include "handle_scope-inl.h"
@@ -53,7 +56,6 @@
 #include "thread-inl.h"
 #include "transaction.h"
 #include "well_known_classes.h"
-#include "zip_archive.h"
 
 namespace art {
 namespace interpreter {

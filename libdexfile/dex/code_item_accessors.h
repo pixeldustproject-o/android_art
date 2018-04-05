@@ -19,7 +19,6 @@
 #ifndef ART_LIBDEXFILE_DEX_CODE_ITEM_ACCESSORS_INL_H_
 #define ART_LIBDEXFILE_DEX_CODE_ITEM_ACCESSORS_INL_H_
 
-#include "base/mutex.h"
 #include "compact_dex_file.h"
 #include "dex_file.h"
 #include "dex_instruction_iterator.h"

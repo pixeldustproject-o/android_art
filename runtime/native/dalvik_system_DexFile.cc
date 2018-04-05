@@ -22,11 +22,15 @@
 
 #include "base/file_utils.h"
 #include "base/logging.h"
+#include "base/os.h"
 #include "base/stl_util.h"
+#include "base/utils.h"
+#include "base/zip_archive.h"
 #include "class_linker.h"
 #include "common_throws.h"
 #include "compiler_filter.h"
 #include "dex/art_dex_file_loader.h"
+#include "dex/descriptors_names.h"
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_loader.h"
 #include "jni_internal.h"
@@ -40,12 +44,9 @@
 #include "oat_file.h"
 #include "oat_file_assistant.h"
 #include "oat_file_manager.h"
-#include "os.h"
 #include "runtime.h"
 #include "scoped_thread_state_change-inl.h"
-#include "utils.h"
 #include "well_known_classes.h"
-#include "zip_archive.h"
 
 namespace art {
 

@@ -23,11 +23,12 @@
 #include <sstream>
 #include <string>
 
-#include "android-base/stringprintf.h"
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 
 #include "base/aborting.h"
 #include "base/file_utils.h"
-#include "base/logging.h"  // For LogHelper, GetCmdLine.
+#include "base/logging.h"  // For gAborting.
 #include "base/macros.h"
 #include "base/mutex.h"
 #include "native_stack_dump.h"

@@ -32,23 +32,25 @@
 #include "android-base/strings.h"
 
 #include "base/dumpable.h"
+#include "base/logging.h"  // For InitLogging.
+#include "base/mutex.h"
 #include "base/scoped_flock.h"
 #include "base/stringpiece.h"
 #include "base/time_utils.h"
 #include "base/unix_file/fd_file.h"
+#include "base/utils.h"
+#include "base/zip_archive.h"
 #include "boot_image_profile.h"
-#include "bytecode_utils.h"
 #include "dex/art_dex_file_loader.h"
+#include "dex/bytecode_utils.h"
 #include "dex/code_item_accessors-inl.h"
 #include "dex/dex_file.h"
 #include "dex/dex_file_loader.h"
 #include "dex/dex_file_types.h"
+#include "dex/type_reference.h"
 #include "jit/profile_compilation_info.h"
 #include "profile_assistant.h"
 #include "runtime.h"
-#include "type_reference.h"
-#include "utils.h"
-#include "zip_archive.h"
 
 namespace art {
 
@@ -201,6 +203,7 @@ class ProfMan FINAL {
     original_argc = argc;
     original_argv = argv;
 
+    Locks::Init();
     InitLogging(argv, Runtime::Abort);
 
     // Skip over the command name.

@@ -23,16 +23,16 @@
 #include "base/macros.h"
 #include "compiled_method-inl.h"
 #include "dex/verification_results.h"
+#include "dex/method_reference.h"
+#include "dex/string_reference.h"
 #include "driver/compiler_driver.h"
 #include "driver/compiler_options.h"
 #include "globals.h"
 #include "gtest/gtest.h"
 #include "linker/relative_patcher.h"
 #include "linker/vector_output_stream.h"
-#include "method_reference.h"
 #include "oat.h"
 #include "oat_quick_method_header.h"
-#include "string_reference.h"
 
 namespace art {
 namespace linker {

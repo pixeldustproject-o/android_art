@@ -21,7 +21,7 @@
 
 #include "art_field.h"
 #include "base/callee_save_type.h"
-#include "base/logging.h"
+#include "base/utils.h"
 #include "class_linker-inl.h"
 #include "common_throws.h"
 #include "dex/code_item_accessors-inl.h"
@@ -29,6 +29,7 @@
 #include "dex/dex_file_annotations.h"
 #include "dex/dex_file_types.h"
 #include "dex/invoke_type.h"
+#include "dex/primitive.h"
 #include "gc_root-inl.h"
 #include "intrinsics_enum.h"
 #include "jit/profiling_info.h"
@@ -39,13 +40,11 @@
 #include "mirror/string.h"
 #include "oat.h"
 #include "obj_ptr-inl.h"
-#include "primitive.h"
 #include "quick/quick_method_frame_info.h"
 #include "read_barrier-inl.h"
 #include "runtime-inl.h"
 #include "scoped_thread_state_change-inl.h"
 #include "thread-current-inl.h"
-#include "utils.h"
 
 namespace art {
 

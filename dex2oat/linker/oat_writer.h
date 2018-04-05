@@ -24,16 +24,16 @@
 
 #include "base/array_ref.h"
 #include "base/dchecked_vector.h"
+#include "base/os.h"
+#include "base/mem_map.h"
+#include "base/safe_map.h"
 #include "dex/compact_dex_level.h"
+#include "dex/method_reference.h"
+#include "dex/string_reference.h"
+#include "dex/type_reference.h"
 #include "linker/relative_patcher.h"  // For RelativePatcherTargetProvider.
-#include "mem_map.h"
-#include "method_reference.h"
 #include "mirror/class.h"
 #include "oat.h"
-#include "os.h"
-#include "safe_map.h"
-#include "string_reference.h"
-#include "type_reference.h"
 
 namespace art {
 

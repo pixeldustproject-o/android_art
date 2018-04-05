@@ -21,15 +21,17 @@
 
 #include <iomanip>
 
-#include "android-base/stringprintf.h"
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 
 #include "art_field-inl.h"
 #include "art_method-inl.h"
-#include "base/logging.h"
+#include "base/macros.h"
 #include "base/to_str.h"
 #include "base/time_utils.h"
 #include "class_linker-inl.h"
 #include "class_linker.h"
+#include "dex/descriptors_names.h"
 #include "dex/dex_file-inl.h"
 #include "gc/space/space.h"
 #include "java_vm_ext.h"

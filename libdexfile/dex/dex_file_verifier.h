@@ -20,11 +20,10 @@
 #include <limits>
 #include <unordered_set>
 
-#include "base/allocator.h"
 #include "base/hash_map.h"
+#include "base/safe_map.h"
 #include "dex_file.h"
 #include "dex_file_types.h"
-#include "safe_map.h"
 
 namespace art {
 
@@ -233,21 +232,11 @@ class DexFileVerifier {
     }
   };
   // Map from offset to dex file type, HashMap for performance reasons.
-  template<class Key,
-           class T,
-           class EmptyFn,
-           AllocatorTag kTag,
-           class Hash = std::hash<Key>,
-           class Pred = std::equal_to<Key>>
-  using AllocationTrackingHashMap = HashMap<
-      Key, T, EmptyFn, Hash, Pred, TrackingAllocator<std::pair<Key, T>, kTag>>;
-
-  AllocationTrackingHashMap<uint32_t,
-                            uint16_t,
-                            OffsetTypeMapEmptyFn,
-                            kAllocatorTagDexFileVerifier,
-                            OffsetTypeMapHashCompareFn,
-                            OffsetTypeMapHashCompareFn> offset_to_type_map_;
+  HashMap<uint32_t,
+          uint16_t,
+          OffsetTypeMapEmptyFn,
+          OffsetTypeMapHashCompareFn,
+          OffsetTypeMapHashCompareFn> offset_to_type_map_;
   const uint8_t* ptr_;
   const void* previous_item_;
 

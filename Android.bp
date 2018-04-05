@@ -30,6 +30,7 @@ subdirs = [
     "dexoptanalyzer",
     "disassembler",
     "imgdiag",
+    "libartbase",
     "libdexfile",
     "oatdump",
     "openjdkjvm",

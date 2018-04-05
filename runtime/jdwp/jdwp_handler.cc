@@ -22,9 +22,9 @@
 
 #include "android-base/stringprintf.h"
 
-#include "atomic.h"
+#include "base/atomic.h"
 #include "base/hex_dump.h"
-#include "base/logging.h"
+#include "base/logging.h"  // For VLOG.
 #include "base/macros.h"
 #include "debugger.h"
 #include "dex/utf.h"

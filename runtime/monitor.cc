@@ -23,9 +23,11 @@
 #include "art_method-inl.h"
 #include "base/logging.h"  // For VLOG.
 #include "base/mutex.h"
+#include "base/quasi_atomic.h"
 #include "base/stl_util.h"
 #include "base/systrace.h"
 #include "base/time_utils.h"
+#include "base/utils.h"
 #include "class_linker.h"
 #include "dex/dex_file-inl.h"
 #include "dex/dex_file_types.h"
@@ -38,7 +40,6 @@
 #include "stack.h"
 #include "thread.h"
 #include "thread_list.h"
-#include "utils.h"
 #include "verifier/method_verifier.h"
 #include "well_known_classes.h"
 

@@ -36,11 +36,15 @@
 
 #include <set>
 
-#include "android-base/stringprintf.h"
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 
 #include "art_field-inl.h"
 #include "art_method-inl.h"
-#include "base/logging.h"
+#include "base/macros.h"
+#include "base/mutex.h"
+#include "base/os.h"
+#include "base/safe_map.h"
 #include "base/time_utils.h"
 #include "base/unix_file/fd_file.h"
 #include "class_linker.h"
@@ -60,8 +64,6 @@
 #include "mirror/class-inl.h"
 #include "mirror/class.h"
 #include "mirror/object-refvisitor-inl.h"
-#include "os.h"
-#include "safe_map.h"
 #include "scoped_thread_state_change-inl.h"
 #include "thread_list.h"
 
