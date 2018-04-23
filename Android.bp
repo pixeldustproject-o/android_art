@@ -32,6 +32,7 @@ subdirs = [
     "imgdiag",
     "libartbase",
     "libdexfile",
+    "libprofile",
     "oatdump",
     "openjdkjvm",
     "openjdkjvmti",

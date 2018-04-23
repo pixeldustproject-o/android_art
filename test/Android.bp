@@ -63,6 +63,7 @@ art_cc_defaults {
         "libvixld-arm64",
         "libart-gtest",
         "libdexfiled",
+        "libprofiled",
 
         "libbase",
         "libicuuc",
@@ -132,6 +133,7 @@ art_cc_defaults {
         "libartd",
         "libartd-compiler",
         "libdexfiled",
+        "libprofiled",
     ],
     static_libs: [
         "libgtest",
@@ -177,6 +179,7 @@ art_cc_library {
         "libartd",
         "libartd-compiler",
         "libdexfiled",
+        "libprofiled",
         "libbase",
         "libbacktrace",
     ],
@@ -227,7 +230,11 @@ art_cc_test_library {
     name: "libartagent",
     srcs: ["900-hello-plugin/load_unload.cc"],
     defaults: ["libartagent-defaults"],
-    shared_libs: ["libart"],
+    shared_libs: [
+        "libart",
+        "libdexfile",
+        "libprofile",
+    ],
 }
 
 art_cc_test_library {
@@ -237,7 +244,11 @@ art_cc_test_library {
         "art_debug_defaults",
         "libartagent-defaults",
     ],
-    shared_libs: ["libartd"],
+    shared_libs: [
+        "libartd",
+        "libdexfiled",
+        "libprofiled",
+    ],
 }
 
 art_cc_defaults {
@@ -343,6 +354,7 @@ art_cc_test_library {
     shared_libs: [
         "libart",
         "libdexfile",
+        "libprofile",
     ],
 }
 
@@ -355,6 +367,7 @@ art_cc_test_library {
     shared_libs: [
         "libartd",
         "libdexfiled",
+        "libprofiled",
     ],
 }
 
@@ -440,6 +453,7 @@ art_cc_test_library {
     shared_libs: [
         "libart",
         "libdexfile",
+        "libprofile",
     ],
 }
 
@@ -452,6 +466,7 @@ art_cc_test_library {
     shared_libs: [
         "libartd",
         "libdexfiled",
+        "libprofiled",
     ],
 }
 

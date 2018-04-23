@@ -38,6 +38,7 @@ art_cc_library {
     shared_libs: [
         "libart",
         "libdexfile",
+        "libprofile",
     ],
 }
 
@@ -50,6 +51,7 @@ art_cc_library {
     shared_libs: [
         "libartd",
         "libdexfiled",
+        "libprofiled",
     ],
 }
 
@@ -76,6 +78,7 @@ art_cc_binary {
 art_cc_test {
     name: "art_dexlayout_tests",
     defaults: ["art_gtest_defaults"],
+    shared_libs: ["libprofiled"],
     srcs: ["dexlayout_test.cc"],
 }
 

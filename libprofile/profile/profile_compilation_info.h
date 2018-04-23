@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ART_RUNTIME_JIT_PROFILE_COMPILATION_INFO_H_
-#define ART_RUNTIME_JIT_PROFILE_COMPILATION_INFO_H_
+#ifndef ART_LIBPROFILE_PROFILE_PROFILE_COMPILATION_INFO_H_
+#define ART_LIBPROFILE_PROFILE_PROFILE_COMPILATION_INFO_H_
 
 #include <set>
 #include <vector>
@@ -26,7 +26,7 @@
 #include "base/mem_map.h"
 #include "base/safe_map.h"
 #include "base/bit_memory_region.h"
-#include "dex_cache_resolved_classes.h"
+#include "dex/dex_cache_resolved_classes.h"
 #include "dex/dex_file.h"
 #include "dex/dex_file_types.h"
 #include "dex/method_reference.h"
@@ -73,6 +73,8 @@ class ProfileCompilationInfo {
   static const uint8_t kProfileVersion[];
 
   static const char* kDexMetadataProfileEntry;
+
+  static constexpr uint8_t kIndividualInlineCacheSize = 5;
 
   // Data structures for encoding the offline representation of inline caches.
   // This is exposed as public in order to make it available to dex2oat compilations
@@ -811,4 +813,4 @@ class ProfileCompilationInfo {
 
 }  // namespace art
 
-#endif  // ART_RUNTIME_JIT_PROFILE_COMPILATION_INFO_H_
+#endif  // ART_LIBPROFILE_PROFILE_PROFILE_COMPILATION_INFO_H_
