@@ -31,12 +31,12 @@
 #include "android-base/unique_fd.h"
 #include "cutils/ashmem.h"
 
-#include "base/allocator.h"
-#include "base/bit_utils.h"
-#include "base/globals.h"
-#include "base/logging.h"  // For VLOG_IS_ON.
-#include "base/memory_tool.h"
-#include "base/utils.h"
+#include "allocator.h"
+#include "bit_utils.h"
+#include "globals.h"
+#include "logging.h"  // For VLOG_IS_ON.
+#include "memory_tool.h"
+#include "utils.h"
 
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON

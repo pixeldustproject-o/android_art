@@ -20,9 +20,9 @@
 
 #include <memory>
 
-#include "base/memory_tool.h"
-#include "base/unix_file/fd_file.h"
 #include "common_runtime_test.h"
+#include "memory_tool.h"
+#include "unix_file/fd_file.h"
 
 namespace art {
 

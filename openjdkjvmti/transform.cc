@@ -36,6 +36,7 @@
 
 #include "art_method.h"
 #include "base/array_ref.h"
+#include "base/globals.h"
 #include "base/mem_map.h"
 #include "class_linker.h"
 #include "dex/dex_file.h"
@@ -43,7 +44,6 @@
 #include "dex/utf.h"
 #include "events-inl.h"
 #include "gc_root-inl.h"
-#include "globals.h"
 #include "jni_env_ext-inl.h"
 #include "jvalue.h"
 #include "jvmti.h"

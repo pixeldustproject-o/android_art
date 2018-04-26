@@ -20,10 +20,10 @@
 #include "arch/mips/callee_save_frame_mips.h"
 #include "art_method.h"
 #include "base/callee_save_type.h"
+#include "base/globals.h"
 #include "base/hex_dump.h"
 #include "base/logging.h"  // For VLOG.
 #include "base/macros.h"
-#include "globals.h"
 #include "registers_mips.h"
 #include "thread-current-inl.h"
 

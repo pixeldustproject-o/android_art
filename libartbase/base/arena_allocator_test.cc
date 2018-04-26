@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-#include "base/arena_allocator-inl.h"
-#include "base/arena_bit_vector.h"
-#include "base/memory_tool.h"
+#include "arena_allocator-inl.h"
+#include "arena_bit_vector.h"
 #include "gtest/gtest.h"
+#include "memory_tool.h"
 
 namespace art {
 

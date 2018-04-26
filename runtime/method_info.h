@@ -19,6 +19,7 @@
 
 #include <android-base/logging.h>
 
+#include "base/bit_memory_region.h"
 #include "base/leb128.h"
 #include "base/macros.h"
 #include "base/memory_region.h"

@@ -41,6 +41,7 @@
 
 #include "art_field-inl.h"
 #include "art_method-inl.h"
+#include "base/globals.h"
 #include "base/macros.h"
 #include "base/mutex.h"
 #include "base/os.h"
@@ -58,7 +59,6 @@
 #include "gc/scoped_gc_critical_section.h"
 #include "gc/space/space.h"
 #include "gc_root.h"
-#include "globals.h"
 #include "jdwp/jdwp.h"
 #include "jdwp/jdwp_priv.h"
 #include "mirror/class-inl.h"
