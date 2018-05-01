@@ -1255,7 +1255,7 @@ bool DexFileVerifier::CheckIntraCodeItem() {
   if (handlers_size < kAllocaMaxSize/sizeof(uint32_t)) {
     // Note: Clang does not specify alignment guarantees for alloca. So align by hand.
     handler_offsets =
-        AlignDown(reinterpret_cast<uint32_t*>(alloca((handlers_size + 1) * sizeof(uint32_t))),
+        AlignUp(reinterpret_cast<uint32_t*>(alloca((handlers_size + 1) * sizeof(uint32_t))),
                 alignof(uint32_t[]));
   } else {
     handler_offsets_uptr.reset(new uint32_t[handlers_size]);
