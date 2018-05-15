@@ -75,10 +75,11 @@ class LockWord {
     // Remaining bits are the recursive lock count.
     kThinLockCountSize = 32 - kThinLockOwnerSize - kStateSize - kReadBarrierStateSize -
         kMarkBitStateSize,
-    // Thin lock bits. Owner in lowest bits.
 
+    // Thin lock bits. Owner in lowest bits.
     kThinLockOwnerShift = 0,
     kThinLockOwnerMask = (1 << kThinLockOwnerSize) - 1,
+    kThinLockOwnerMaskShifted = kThinLockOwnerMask << kThinLockOwnerShift,
     kThinLockMaxOwner = kThinLockOwnerMask,
     // Count in higher bits.
     kThinLockCountShift = kThinLockOwnerSize + kThinLockOwnerShift,
@@ -86,7 +87,6 @@ class LockWord {
     kThinLockMaxCount = kThinLockCountMask,
     kThinLockCountOne = 1 << kThinLockCountShift,  // == 65536 (0x10000)
     kThinLockCountMaskShifted = kThinLockCountMask << kThinLockCountShift,
-    kThinLockCountMaskShiftedToggled = ~kThinLockCountMaskShifted,
 
     // State in the highest bits.
     kStateShift = kReadBarrierStateSize + kThinLockCountSize + kThinLockCountShift +

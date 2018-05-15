@@ -1151,7 +1151,7 @@ END art_quick_do_long_jump
     .extern artLockObjectFromCode
 ENTRY art_quick_lock_object
     ldr    w1, [xSELF, #THREAD_ID_OFFSET]
-    cbz    w0, .Lslow_lock
+    cbz    w0, art_quick_lock_object_no_inline
                                       // Exclusive load/store has no immediate anymore.
     add    x4, x0, #MIRROR_OBJECT_LOCK_WORD_OFFSET
 .Lretry_lock:
@@ -1168,24 +1168,18 @@ ENTRY art_quick_lock_object
     ret
 .Lnot_unlocked:  // w2: original lock word, w1: thread id, w3: w2 ^ w1
                                       // Check lock word state and thread id together,
-    tst    w3, #(LOCK_WORD_GC_STATE_MASK_SHIFTED_TOGGLED & LOCK_WORD_THIN_LOCK_COUNT_MASK_SHIFTED_TOGGLED)
-    b.ne   .Lslow_lock
+    tst    w3, #(LOCK_WORD_STATE_MASK_SHIFTED | LOCK_WORD_THIN_LOCK_OWNER_MASK_SHIFTED)
+    b.ne   art_quick_lock_object_no_inline
     add    w3, w2, #LOCK_WORD_THIN_LOCK_COUNT_ONE  // Increment the recursive lock count.
     tst    w3, #LOCK_WORD_THIN_LOCK_COUNT_MASK_SHIFTED  // Test the new thin lock count.
-    b.eq   .Lslow_lock                // Zero as the new count indicates overflow, go slow path.
+    b.eq   art_quick_lock_object_no_inline  // Zero as the new count indicates overflow, go slow path.
     stxr   w2, w3, [x4]
     cbnz   w2, .Lretry_lock           // If the store failed, retry.
     ret
-.Lslow_lock:
-    SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case we block
-    mov    x1, xSELF                  // pass Thread::Current
-    bl     artLockObjectFromCode      // (Object* obj, Thread*)
-    RESTORE_SAVE_REFS_ONLY_FRAME
-    REFRESH_MARKING_REGISTER
-    RETURN_IF_W0_IS_ZERO_OR_DELIVER
 END art_quick_lock_object
 
 ENTRY art_quick_lock_object_no_inline
+    // This is also the slow path for art_quick_lock_object.
     SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case we block
     mov    x1, xSELF                  // pass Thread::Current
     bl     artLockObjectFromCode      // (Object* obj, Thread*)
@@ -1203,7 +1197,7 @@ END art_quick_lock_object_no_inline
     .extern artUnlockObjectFromCode
 ENTRY art_quick_unlock_object
     ldr    w1, [xSELF, #THREAD_ID_OFFSET]
-    cbz    x0, .Lslow_unlock
+    cbz    x0, art_quick_unlock_object_no_inline
                                       // Exclusive load/store has no immediate anymore.
     add    x4, x0, #MIRROR_OBJECT_LOCK_WORD_OFFSET
 .Lretry_unlock:
@@ -1228,8 +1222,8 @@ ENTRY art_quick_unlock_object
     ret
 .Lnot_simply_locked:
                                       // Check lock word state and thread id together,
-    tst    w3, #(LOCK_WORD_GC_STATE_MASK_SHIFTED_TOGGLED & LOCK_WORD_THIN_LOCK_COUNT_MASK_SHIFTED_TOGGLED)
-    b.ne   .Lslow_unlock
+    tst    w3, #(LOCK_WORD_STATE_MASK_SHIFTED | LOCK_WORD_THIN_LOCK_OWNER_MASK_SHIFTED)
+    b.ne   art_quick_unlock_object_no_inline
     sub    w3, w2, #LOCK_WORD_THIN_LOCK_COUNT_ONE  // decrement count
 #ifndef USE_READ_BARRIER
     str    w3, [x4]
@@ -1238,16 +1232,10 @@ ENTRY art_quick_unlock_object
     cbnz   w2, .Lretry_unlock         // If the store failed, retry.
 #endif
     ret
-.Lslow_unlock:
-    SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case exception allocation triggers GC
-    mov    x1, xSELF                  // pass Thread::Current
-    bl     artUnlockObjectFromCode    // (Object* obj, Thread*)
-    RESTORE_SAVE_REFS_ONLY_FRAME
-    REFRESH_MARKING_REGISTER
-    RETURN_IF_W0_IS_ZERO_OR_DELIVER
 END art_quick_unlock_object
 
 ENTRY art_quick_unlock_object_no_inline
+    // This is also the slow path for art_quick_unlock_object.
     SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case exception allocation triggers GC
     mov    x1, xSELF                  // pass Thread::Current
     bl     artUnlockObjectFromCode    // (Object* obj, Thread*)
