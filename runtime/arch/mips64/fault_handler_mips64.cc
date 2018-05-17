@@ -18,13 +18,13 @@
 
 #include <sys/ucontext.h>
 
+#include "arch/mips64/callee_save_frame_mips64.h"
 #include "art_method.h"
 #include "base/callee_save_type.h"
 #include "base/hex_dump.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "globals.h"
-#include "quick_method_frame_info_mips64.h"
 #include "registers_mips64.h"
 #include "thread-current-inl.h"
 
